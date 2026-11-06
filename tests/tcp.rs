@@ -7,7 +7,7 @@ use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use coqui_transport::frame::{PeerFrame, WebTransportFrame};
+use coqui_transport::frame::{Codec, PeerFrame, WebTransportFrame};
 use coqui_transport::{Channel, Connector, Failure, Listener, Split, StreamChannel, tcp};
 use support::WAIT;
 
@@ -58,6 +58,42 @@ fn closing_a_channel_ends_the_stream_for_the_peer_after_what_was_sent() {
         assert_eq!(server.receive(WAIT).unwrap(), Some(vec![at; 1000]));
     }
     assert_eq!(server.receive(WAIT), Ok(None));
+}
+
+#[test]
+fn closing_while_the_peer_still_sends_loses_nothing_this_side_sent() {
+    let listener = TcpListener::bind(loopback()).unwrap();
+    let address = listener.local_addr().unwrap();
+    let client = StreamChannel::builder(PeerFrame)
+        .pending(1)
+        .start(TcpStream::connect(address).unwrap())
+        .unwrap();
+    let (server, _) = listener.accept().unwrap();
+    // The peer sends far more than the channel reads before it closes.
+    let flooding = {
+        let mut server = server.try_clone().unwrap();
+        thread::spawn(move || {
+            let frame = PeerFrame.encode(&[1; 1000], usize::MAX).unwrap();
+            for _ in 0..2000 {
+                if io::Write::write_all(&mut server, &frame).is_err() {
+                    return;
+                }
+            }
+        })
+    };
+    thread::sleep(Duration::from_millis(200));
+    let sent = vec![7; 200_000];
+    client.send(&sent).unwrap();
+    client.close();
+    let mut wire = Vec::new();
+    let read = (&server).read_to_end(&mut wire);
+    assert!(
+        read.is_ok(),
+        "the peer's read ended with {read:?} after {} bytes",
+        wire.len()
+    );
+    assert_eq!(wire, PeerFrame.encode(&sent, usize::MAX).unwrap());
+    flooding.join().unwrap();
 }
 
 #[test]

@@ -43,9 +43,19 @@ use crate::sync::{locked, wait_until};
 /// [`Failure::NoProgress`], seen by the next call that waits on the writer, or by the writer itself
 /// on a stream with a write timeout.
 ///
-/// **Closing.** `close`, which dropping also does, refuses further sends, waits up to the send limit
-/// for what is queued to be written, then ends the stream: the writer half is dropped (the peer
-/// reads the end), the stream's [`Interrupt`](crate::Interrupt) wakes a blocked read, and both
+/// `send` answers [`Failure::NoProgress`] in two cases, as the legacy channels do: with
+/// [`is_closed`](Channel::is_closed) still `false`, the queue was full, nothing was sent and the
+/// channel goes on; with it `true`, the writer stalled and the channel ended. After a local `close`
+/// a send is [`Failure::PathLost`]. [`capabilities`](Channel::capabilities) reports as
+/// `max_receive` the bound for the next message the reader thread reads, which with read-ahead can
+/// be past what `receive` has returned.
+///
+/// **Closing.** `close`, which dropping also does, refuses further sends and waits up to the send
+/// limit for what is queued to be written; the writer half is then dropped, so the peer reads the
+/// end. Until the peer ends its side too, or has sent nothing for the
+/// [`linger`](StreamChannelBuilder::linger), the reader discards what still arrives, since a socket
+/// ended with bytes unread is reset and its peer loses what was sent last. Then the stream's
+/// [`Interrupt`](crate::Interrupt) wakes a blocked read, and both
 /// threads are joined, each waited for at most the send limit. Messages already read stay
 /// readable, then `receive` answers `Ok(None)`. A thread the stream cannot wake (any read on a
 /// stream with no interrupt, such as this process's standard input) is left to end when the stream
@@ -79,6 +89,8 @@ impl StreamChannel {
     pub const DEFAULT_SEND_LIMIT: Duration = Duration::from_secs(30);
     /// The default size of one read from the stream: 64 KiB.
     pub const DEFAULT_READ_BUFFER: usize = 64 * 1024;
+    /// The default time closing waits, after the peer last sent anything, for its end: 500 ms.
+    pub const DEFAULT_LINGER: Duration = Duration::from_millis(500);
 
     /// Settings for a channel framed by `codec`, at their defaults.
     pub const fn builder<C: Codec>(codec: C) -> StreamChannelBuilder<C> {
@@ -89,6 +101,7 @@ impl StreamChannel {
             queued_bytes: Self::DEFAULT_QUEUED_BYTES,
             send_limit: Self::DEFAULT_SEND_LIMIT,
             read_buffer: Self::DEFAULT_READ_BUFFER,
+            linger: Self::DEFAULT_LINGER,
         }
     }
 
@@ -99,6 +112,22 @@ impl StreamChannel {
     /// As [`StreamChannelBuilder::start`].
     pub fn start<S: Split, C: Codec>(stream: S, codec: C) -> io::Result<Self> {
         Self::builder(codec).start(stream)
+    }
+
+    /// Waits for the reader to see the peer's end, while it discards what the peer still sends:
+    /// until the peer has been quiet for the linger, and never past the send limit.
+    fn linger(&self) {
+        let cap = deadline::after(self.shared.send_limit);
+        let mut done = locked(&self.shared.done);
+        while !done[READER] {
+            let heard = locked(&self.shared.inbound).heard;
+            let quiet = heard.and_then(|at| at.checked_add(self.shared.linger));
+            let until = deadline::earlier(cap, quiet);
+            if deadline::passed(until) {
+                break;
+            }
+            done = wait_until(&self.shared.exited, done, until);
+        }
     }
 
     /// Joins one thread once it has finished, waiting for that up to the send limit when the stream
@@ -148,6 +177,7 @@ pub struct StreamChannelBuilder<C> {
     queued_bytes: usize,
     send_limit: Duration,
     read_buffer: usize,
+    linger: Duration,
 }
 
 impl<C: Codec> StreamChannelBuilder<C> {
@@ -188,8 +218,18 @@ impl<C: Codec> StreamChannelBuilder<C> {
         self
     }
 
+    /// How long `close`, once it has written what was queued, waits after the peer last sent
+    /// anything for the peer's end, reading and discarding what still arrives, before it ends the
+    /// stream; never longer than the send limit in all. A socket ended with bytes unread is reset,
+    /// and the peer then loses what this side sent last. Default
+    /// [`StreamChannel::DEFAULT_LINGER`].
+    pub const fn linger(mut self, quiet: Duration) -> Self {
+        self.linger = quiet;
+        self
+    }
+
     /// The names of the settings looser than their defaults: `max_message`, `pending`,
-    /// `queued_bytes`, `send_limit` and `read_buffer` above theirs.
+    /// `queued_bytes`, `send_limit`, `read_buffer` and `linger` above theirs.
     #[must_use]
     pub fn weakened(&self) -> Vec<&'static str> {
         let mut names = Vec::new();
@@ -208,6 +248,9 @@ impl<C: Codec> StreamChannelBuilder<C> {
         if self.read_buffer > StreamChannel::DEFAULT_READ_BUFFER {
             names.push("read_buffer");
         }
+        if self.linger > StreamChannel::DEFAULT_LINGER {
+            names.push("linger");
+        }
         names
     }
 
@@ -225,6 +268,7 @@ impl<C: Codec> StreamChannelBuilder<C> {
             self.pending,
             self.queued_bytes,
             self.send_limit,
+            self.linger,
             halves.interrupt,
         ));
         let mut writer = halves.writer;
@@ -354,7 +398,7 @@ impl Channel for StreamChannel {
     }
 
     fn close(&self) {
-        {
+        let drained = {
             let mut outbound = locked(&self.shared.outbound);
             outbound.closing = true;
             self.shared.queued.notify_all();
@@ -364,9 +408,20 @@ impl Channel for StreamChannel {
             }
             outbound.frames.clear();
             outbound.bytes = 0;
+            outbound.drained
+        };
+        {
+            let mut inbound = locked(&self.shared.inbound);
+            if !inbound.closed {
+                inbound.closed = true;
+                inbound.heard = Some(std::time::Instant::now());
+            }
         }
-        locked(&self.shared.inbound).closed = true;
         self.shared.wake_all();
+        if drained {
+            self.linger();
+        }
+        locked(&self.shared.inbound).linger_over = true;
         self.shared.end_stream();
         self.join(&self.writer, WRITER);
         self.join(&self.reader, READER);

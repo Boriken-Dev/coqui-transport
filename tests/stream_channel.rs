@@ -552,6 +552,58 @@ fn closing_while_the_peer_takes_nothing_gives_up_after_the_send_limit() {
 }
 
 #[test]
+fn a_failure_wakes_a_writer_blocked_on_the_stream_and_the_peer_reads_the_end() {
+    let builder = StreamChannel::builder(PeerFrame)
+        .max_message(10)
+        .send_limit(Duration::from_secs(60));
+    let (channel, mut reader, mut writer) = raw(builder, 8);
+    // The writer blocks on a pipe the peer has not read, then the peer breaks the wire.
+    channel.send(&[0; 10]).unwrap();
+    thread::sleep(Duration::from_millis(50));
+    writer.write_all(&11_u32.to_be_bytes()).unwrap();
+    assert_eq!(channel.receive(WAIT), Err(Failure::Protocol));
+    let (done, ended) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let mut rest = Vec::new();
+        let _ = done.send(reader.read_to_end(&mut rest).map(|_| rest.len()));
+    });
+    let read = ended
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the peer reads the end");
+    assert!(read.unwrap() <= 14);
+}
+
+/// Accepts everything, taking time in proportion to what one call is given, as a blocking socket
+/// send does until it has queued the whole buffer.
+struct Paced;
+
+impl Write for Paced {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        thread::sleep(Duration::from_micros(buf.len() as u64 / 2));
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_large_frame_to_a_slow_but_steady_stream_is_not_taken_for_a_stall() {
+    let (mine, _theirs) = memory::pipe(16);
+    let (reader, _writer) = mine.into_halves();
+    let channel = StreamChannel::builder(PeerFrame)
+        .send_limit(Duration::from_millis(200))
+        .start(Halves::new(reader, Paced))
+        .unwrap();
+    // About half a second for the whole frame, at two bytes a microsecond.
+    channel.send(&vec![0; 1 << 20]).unwrap();
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(channel.send(b"next"), Ok(()));
+    assert!(!channel.is_closed());
+}
+
+#[test]
 fn closing_a_channel_whose_writer_cannot_be_woken_returns_after_the_send_limit() {
     let (mine, _theirs) = memory::pipe(1);
     let (reader, writer) = mine.into_halves();
@@ -673,14 +725,16 @@ fn only_settings_above_their_defaults_are_listed_as_weaker() {
         .pending(1)
         .queued_bytes(1)
         .send_limit(Duration::from_millis(1))
-        .read_buffer(1);
+        .read_buffer(1)
+        .linger(Duration::ZERO);
     assert!(tighter.weakened().is_empty());
     let looser = StreamChannel::builder(PeerFrame)
         .max_message(StreamChannel::DEFAULT_MAX_MESSAGE + 1)
         .pending(StreamChannel::DEFAULT_PENDING + 1)
         .queued_bytes(StreamChannel::DEFAULT_QUEUED_BYTES + 1)
         .send_limit(StreamChannel::DEFAULT_SEND_LIMIT + Duration::from_secs(1))
-        .read_buffer(StreamChannel::DEFAULT_READ_BUFFER + 1);
+        .read_buffer(StreamChannel::DEFAULT_READ_BUFFER + 1)
+        .linger(StreamChannel::DEFAULT_LINGER + Duration::from_millis(1));
     assert_eq!(
         looser.weakened(),
         [
@@ -688,7 +742,8 @@ fn only_settings_above_their_defaults_are_listed_as_weaker() {
             "pending",
             "queued_bytes",
             "send_limit",
-            "read_buffer"
+            "read_buffer",
+            "linger"
         ]
     );
 }

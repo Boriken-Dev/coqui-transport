@@ -16,6 +16,9 @@ use crate::sync::{locked, wait};
 /// costs, so the bound holds for many small messages as for a few large ones.
 pub(crate) const FRAME_COST: usize = 64;
 
+/// The most bytes one write call is given.
+const WRITE_CHUNK: usize = 64 * 1024;
+
 /// How the reading direction ended.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum End {
@@ -39,6 +42,10 @@ pub(crate) struct Inbound {
     pub(crate) staged: Option<(u64, usize)>,
     /// `close` has been called.
     pub(crate) closed: bool,
+    /// While closing: when bytes last arrived, which the reader discards until the peer's end.
+    pub(crate) heard: Option<Instant>,
+    /// Closing has stopped waiting for the peer's end: the reader stops discarding.
+    pub(crate) linger_over: bool,
 }
 
 impl Inbound {
@@ -84,6 +91,8 @@ pub(crate) struct Shared {
     pub(crate) interrupt: Option<Interrupt>,
     pub(crate) send_limit: Duration,
     pub(crate) queued_limit: usize,
+    /// How long closing waits, after the peer last sent anything, for the peer's end.
+    pub(crate) linger: Duration,
     /// Whether the reader thread and the writer thread have finished their work.
     pub(crate) done: Mutex<[bool; 2]>,
     /// A thread finished.
@@ -113,6 +122,7 @@ impl Shared {
         pending: usize,
         queued_limit: usize,
         send_limit: Duration,
+        linger: Duration,
         interrupt: Option<Interrupt>,
     ) -> Self {
         Self {
@@ -124,6 +134,8 @@ impl Shared {
                 receive_now: max_message,
                 staged: None,
                 closed: false,
+                heard: None,
+                linger_over: false,
             }),
             arrived: Condvar::new(),
             taken: Condvar::new(),
@@ -136,6 +148,7 @@ impl Shared {
             interrupt,
             send_limit,
             queued_limit,
+            linger,
             done: Mutex::new([false; 2]),
             exited: Condvar::new(),
         }
@@ -265,6 +278,35 @@ impl Shared {
         self.arrived.notify_all();
     }
 
+    /// After `close`, reads and discards what the peer still sends until its end, so the stream is
+    /// not ended with bytes unread: a socket closed then is reset, and the peer loses what this side
+    /// sent last. `close` decides when to stop waiting.
+    fn linger<R: Read>(&self, reader: &mut R, buffer: &mut [u8]) {
+        {
+            let inbound = locked(&self.inbound);
+            if !inbound.closed || inbound.end.is_some() {
+                return;
+            }
+        }
+        loop {
+            if locked(&self.inbound).linger_over {
+                return;
+            }
+            match reader.read(buffer) {
+                Ok(0) => return,
+                Ok(_) => locked(&self.inbound).heard = Some(Instant::now()),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::Interrupted
+                            | io::ErrorKind::WouldBlock
+                            | io::ErrorKind::TimedOut
+                    ) => {}
+                Err(_) => return,
+            }
+        }
+    }
+
     /// The reader thread: reads, decodes and holds messages for `receive`, never more than the
     /// pending limit ahead of it, judging each by the bound for its position.
     pub(crate) fn read_stream<R: Read, D: Decode>(
@@ -277,12 +319,14 @@ impl Shared {
         let mut position: u64 = 0;
         loop {
             let Some(bound) = self.reserve(position) else {
+                self.linger(reader, &mut buffer);
                 return;
             };
             decoder.set_maximum(bound);
             match decoder.next_frame() {
                 Ok(Some(message)) => {
                     if !self.deliver(message) {
+                        self.linger(reader, &mut buffer);
                         return;
                     }
                     position += 1;
@@ -367,7 +411,10 @@ impl Shared {
     fn write_frame<W: Write>(&self, writer: &mut W, frame: &[u8]) -> Result<(), Failure> {
         let mut written = 0;
         while written < frame.len() {
-            match writer.write(&frame[written..]) {
+            // A blocking send can hold one call until all it was given is queued, so each call is
+            // given at most a chunk, and progress is seen between them.
+            let end = frame.len().min(written.saturating_add(WRITE_CHUNK));
+            match writer.write(&frame[written..end]) {
                 Ok(0) => return Err(Failure::PathLost),
                 Ok(count) => {
                     written += count;

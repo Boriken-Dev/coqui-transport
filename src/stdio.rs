@@ -13,8 +13,9 @@
 //!
 //! Neither stream can be woken from another thread, so a channel on them has no
 //! [`Interrupt`](crate::Interrupt): closing it writes what is queued and stops reading, while a read
-//! already waiting on standard input returns only when input arrives or ends. The peer sees the
-//! end of the stream when this process exits or closes its standard output.
+//! already waiting on standard input returns only when input arrives or ends, and what it reads
+//! then is discarded. The peer sees the end of the stream when this process exits or closes its
+//! standard output.
 
 use std::io::{Stdin, Stdout, stdin, stdout};
 
