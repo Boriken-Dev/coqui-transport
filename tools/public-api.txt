@@ -269,6 +269,7 @@ impl core::fmt::Debug for coqui_transport::Interrupt
 pub fn coqui_transport::Interrupt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct coqui_transport::StreamChannel
 impl coqui_transport::StreamChannel
+pub const coqui_transport::StreamChannel::DEFAULT_LINGER: core::time::Duration
 pub const coqui_transport::StreamChannel::DEFAULT_MAX_MESSAGE: usize
 pub const coqui_transport::StreamChannel::DEFAULT_PENDING: usize
 pub const coqui_transport::StreamChannel::DEFAULT_QUEUED_BYTES: usize
@@ -296,6 +297,7 @@ impl core::ops::drop::Drop for coqui_transport::StreamChannel
 pub fn coqui_transport::StreamChannel::drop(&mut self)
 pub struct coqui_transport::StreamChannelBuilder<C>
 impl<C: coqui_transport::frame::Codec> coqui_transport::StreamChannelBuilder<C>
+pub const fn coqui_transport::StreamChannelBuilder<C>::linger(self, core::time::Duration) -> Self
 pub const fn coqui_transport::StreamChannelBuilder<C>::max_message(self, usize) -> Self
 pub const fn coqui_transport::StreamChannelBuilder<C>::pending(self, usize) -> Self
 pub const fn coqui_transport::StreamChannelBuilder<C>::queued_bytes(self, usize) -> Self
