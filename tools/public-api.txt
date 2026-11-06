@@ -1,0 +1,390 @@
+pub mod coqui_transport
+pub mod coqui_transport::asynch
+pub struct coqui_transport::asynch::StreamChannel
+impl coqui_transport::asynch::StreamChannel
+pub const coqui_transport::asynch::StreamChannel::DEFAULT_MAX_MESSAGE: usize
+pub const coqui_transport::asynch::StreamChannel::DEFAULT_READ_BUFFER: usize
+pub const coqui_transport::asynch::StreamChannel::DEFAULT_SEND_LIMIT: core::time::Duration
+pub const fn coqui_transport::asynch::StreamChannel::builder<C: coqui_transport::frame::Codec>(C) -> coqui_transport::asynch::StreamChannelBuilder<C>
+pub fn coqui_transport::asynch::StreamChannel::new<S, C>(S, C) -> Self where S: tokio::io::async_read::AsyncRead + tokio::io::async_write::AsyncWrite + core::marker::Send + 'static, C: coqui_transport::frame::Codec
+impl coqui_transport::asynch::AsyncChannel for coqui_transport::asynch::StreamChannel
+pub fn coqui_transport::asynch::StreamChannel::capabilities(&self) -> coqui_transport::Capabilities
+pub fn coqui_transport::asynch::StreamChannel::close(&self) -> coqui_transport::asynch::BoxFuture<'_, ()>
+pub fn coqui_transport::asynch::StreamChannel::is_closed(&self) -> bool
+pub fn coqui_transport::asynch::StreamChannel::receive(&self, core::option::Option<core::time::Duration>) -> coqui_transport::asynch::BoxFuture<'_, core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::Failure>>
+pub fn coqui_transport::asynch::StreamChannel::send<'a>(&'a self, &'a [u8]) -> coqui_transport::asynch::BoxFuture<'a, core::result::Result<(), coqui_transport::Failure>>
+pub fn coqui_transport::asynch::StreamChannel::send_timeout<'a>(&'a self, &'a [u8], core::option::Option<core::time::Duration>) -> coqui_transport::asynch::BoxFuture<'a, core::result::Result<(), coqui_transport::Failure>>
+pub fn coqui_transport::asynch::StreamChannel::set_max_message(&self, usize)
+pub fn coqui_transport::asynch::StreamChannel::set_max_receive(&self, usize)
+pub fn coqui_transport::asynch::StreamChannel::set_max_receive_after(&self, usize, usize) -> core::result::Result<(), coqui_transport::Failure>
+pub fn coqui_transport::asynch::StreamChannel::set_max_send(&self, usize)
+impl core::fmt::Debug for coqui_transport::asynch::StreamChannel
+pub fn coqui_transport::asynch::StreamChannel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct coqui_transport::asynch::StreamChannelBuilder<C>
+impl<C: coqui_transport::frame::Codec> coqui_transport::asynch::StreamChannelBuilder<C>
+pub fn coqui_transport::asynch::StreamChannelBuilder<C>::build<S>(self, S) -> coqui_transport::asynch::StreamChannel where S: tokio::io::async_read::AsyncRead + tokio::io::async_write::AsyncWrite + core::marker::Send + 'static
+pub const fn coqui_transport::asynch::StreamChannelBuilder<C>::max_message(self, usize) -> Self
+pub const fn coqui_transport::asynch::StreamChannelBuilder<C>::read_buffer(self, usize) -> Self
+pub const fn coqui_transport::asynch::StreamChannelBuilder<C>::send_limit(self, core::time::Duration) -> Self
+pub fn coqui_transport::asynch::StreamChannelBuilder<C>::weakened(&self) -> alloc::vec::Vec<&'static str>
+pub trait coqui_transport::asynch::AsyncChannel: core::marker::Send + core::marker::Sync
+pub fn coqui_transport::asynch::AsyncChannel::capabilities(&self) -> coqui_transport::Capabilities
+pub fn coqui_transport::asynch::AsyncChannel::close(&self) -> coqui_transport::asynch::BoxFuture<'_, ()>
+pub fn coqui_transport::asynch::AsyncChannel::is_closed(&self) -> bool
+pub fn coqui_transport::asynch::AsyncChannel::receive(&self, core::option::Option<core::time::Duration>) -> coqui_transport::asynch::BoxFuture<'_, core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::Failure>>
+pub fn coqui_transport::asynch::AsyncChannel::send<'a>(&'a self, &'a [u8]) -> coqui_transport::asynch::BoxFuture<'a, core::result::Result<(), coqui_transport::Failure>>
+pub fn coqui_transport::asynch::AsyncChannel::send_timeout<'a>(&'a self, &'a [u8], core::option::Option<core::time::Duration>) -> coqui_transport::asynch::BoxFuture<'a, core::result::Result<(), coqui_transport::Failure>>
+pub fn coqui_transport::asynch::AsyncChannel::set_max_message(&self, usize)
+pub fn coqui_transport::asynch::AsyncChannel::set_max_receive(&self, usize)
+pub fn coqui_transport::asynch::AsyncChannel::set_max_receive_after(&self, usize, usize) -> core::result::Result<(), coqui_transport::Failure>
+pub fn coqui_transport::asynch::AsyncChannel::set_max_send(&self, usize)
+impl coqui_transport::asynch::AsyncChannel for coqui_transport::asynch::StreamChannel
+pub fn coqui_transport::asynch::StreamChannel::capabilities(&self) -> coqui_transport::Capabilities
+pub fn coqui_transport::asynch::StreamChannel::close(&self) -> coqui_transport::asynch::BoxFuture<'_, ()>
+pub fn coqui_transport::asynch::StreamChannel::is_closed(&self) -> bool
+pub fn coqui_transport::asynch::StreamChannel::receive(&self, core::option::Option<core::time::Duration>) -> coqui_transport::asynch::BoxFuture<'_, core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::Failure>>
+pub fn coqui_transport::asynch::StreamChannel::send<'a>(&'a self, &'a [u8]) -> coqui_transport::asynch::BoxFuture<'a, core::result::Result<(), coqui_transport::Failure>>
+pub fn coqui_transport::asynch::StreamChannel::send_timeout<'a>(&'a self, &'a [u8], core::option::Option<core::time::Duration>) -> coqui_transport::asynch::BoxFuture<'a, core::result::Result<(), coqui_transport::Failure>>
+pub fn coqui_transport::asynch::StreamChannel::set_max_message(&self, usize)
+pub fn coqui_transport::asynch::StreamChannel::set_max_receive(&self, usize)
+pub fn coqui_transport::asynch::StreamChannel::set_max_receive_after(&self, usize, usize) -> core::result::Result<(), coqui_transport::Failure>
+pub fn coqui_transport::asynch::StreamChannel::set_max_send(&self, usize)
+pub trait coqui_transport::asynch::AsyncConnector
+pub type coqui_transport::asynch::AsyncConnector::Connection: core::marker::Send
+pub type coqui_transport::asynch::AsyncConnector::Error: core::error::Error + core::marker::Send
+pub fn coqui_transport::asynch::AsyncConnector::connect(&self, core::time::Duration) -> coqui_transport::asynch::BoxFuture<'_, core::result::Result<Self::Connection, Self::Error>>
+impl coqui_transport::asynch::AsyncConnector for coqui_transport::tcp::Connector
+pub type coqui_transport::tcp::Connector::Connection = tokio::net::tcp::stream::TcpStream
+pub type coqui_transport::tcp::Connector::Error = core::io::error::Error
+pub fn coqui_transport::tcp::Connector::connect(&self, core::time::Duration) -> coqui_transport::asynch::BoxFuture<'_, core::io::error::Result<tokio::net::tcp::stream::TcpStream>>
+pub trait coqui_transport::asynch::AsyncListener
+pub type coqui_transport::asynch::AsyncListener::Connection: core::marker::Send
+pub type coqui_transport::asynch::AsyncListener::Error: core::error::Error + core::marker::Send
+pub fn coqui_transport::asynch::AsyncListener::accept(&self) -> coqui_transport::asynch::BoxFuture<'_, core::result::Result<Self::Connection, Self::Error>>
+impl coqui_transport::asynch::AsyncListener for tokio::net::tcp::listener::TcpListener
+pub type tokio::net::tcp::listener::TcpListener::Connection = tokio::net::tcp::stream::TcpStream
+pub type tokio::net::tcp::listener::TcpListener::Error = core::io::error::Error
+pub fn tokio::net::tcp::listener::TcpListener::accept(&self) -> coqui_transport::asynch::BoxFuture<'_, core::io::error::Result<tokio::net::tcp::stream::TcpStream>>
+pub type coqui_transport::asynch::BoxFuture<'a, T> = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = T> + core::marker::Send + 'a)>>
+pub mod coqui_transport::frame
+#[non_exhaustive] pub enum coqui_transport::frame::FrameError
+pub coqui_transport::frame::FrameError::Size
+pub coqui_transport::frame::FrameError::Tag
+impl core::error::Error for coqui_transport::frame::FrameError
+impl core::fmt::Display for coqui_transport::frame::FrameError
+pub fn coqui_transport::frame::FrameError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct coqui_transport::frame::PeerDecoder(_)
+impl coqui_transport::frame::PeerDecoder
+pub fn coqui_transport::frame::PeerDecoder::buffered(&self) -> usize
+pub const fn coqui_transport::frame::PeerDecoder::new(usize) -> Self
+pub fn coqui_transport::frame::PeerDecoder::next_frame(&mut self) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::frame::FrameError>
+pub fn coqui_transport::frame::PeerDecoder::push(&mut self, &[u8])
+pub const fn coqui_transport::frame::PeerDecoder::set_maximum(&mut self, usize)
+impl coqui_transport::frame::Decode for coqui_transport::frame::PeerDecoder
+pub fn coqui_transport::frame::PeerDecoder::buffered(&self) -> usize
+pub fn coqui_transport::frame::PeerDecoder::next_frame(&mut self) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::frame::FrameError>
+pub fn coqui_transport::frame::PeerDecoder::push(&mut self, &[u8])
+pub fn coqui_transport::frame::PeerDecoder::set_maximum(&mut self, usize)
+pub struct coqui_transport::frame::PeerFrame
+impl coqui_transport::frame::Codec for coqui_transport::frame::PeerFrame
+pub type coqui_transport::frame::PeerFrame::Decoder = coqui_transport::frame::PeerDecoder
+pub fn coqui_transport::frame::PeerFrame::decoder(&self, usize) -> coqui_transport::frame::PeerDecoder
+pub fn coqui_transport::frame::PeerFrame::encode(&self, &[u8], usize) -> core::result::Result<alloc::vec::Vec<u8>, coqui_transport::frame::FrameError>
+pub struct coqui_transport::frame::WebTransportDecoder(_)
+impl coqui_transport::frame::WebTransportDecoder
+pub fn coqui_transport::frame::WebTransportDecoder::buffered(&self) -> usize
+pub const fn coqui_transport::frame::WebTransportDecoder::new(usize) -> Self
+pub fn coqui_transport::frame::WebTransportDecoder::next_frame(&mut self) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::frame::FrameError>
+pub fn coqui_transport::frame::WebTransportDecoder::push(&mut self, &[u8])
+pub const fn coqui_transport::frame::WebTransportDecoder::set_maximum(&mut self, usize)
+impl coqui_transport::frame::Decode for coqui_transport::frame::WebTransportDecoder
+pub fn coqui_transport::frame::WebTransportDecoder::buffered(&self) -> usize
+pub fn coqui_transport::frame::WebTransportDecoder::next_frame(&mut self) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::frame::FrameError>
+pub fn coqui_transport::frame::WebTransportDecoder::push(&mut self, &[u8])
+pub fn coqui_transport::frame::WebTransportDecoder::set_maximum(&mut self, usize)
+pub struct coqui_transport::frame::WebTransportFrame
+impl coqui_transport::frame::Codec for coqui_transport::frame::WebTransportFrame
+pub type coqui_transport::frame::WebTransportFrame::Decoder = coqui_transport::frame::WebTransportDecoder
+pub fn coqui_transport::frame::WebTransportFrame::decoder(&self, usize) -> coqui_transport::frame::WebTransportDecoder
+pub fn coqui_transport::frame::WebTransportFrame::encode(&self, &[u8], usize) -> core::result::Result<alloc::vec::Vec<u8>, coqui_transport::frame::FrameError>
+pub const coqui_transport::frame::DEFAULT_MAX_MESSAGE: usize
+pub trait coqui_transport::frame::Codec: core::marker::Send + core::marker::Sync + 'static
+pub type coqui_transport::frame::Codec::Decoder: coqui_transport::frame::Decode + core::marker::Send + 'static
+pub fn coqui_transport::frame::Codec::decoder(&self, usize) -> Self::Decoder
+pub fn coqui_transport::frame::Codec::encode(&self, &[u8], usize) -> core::result::Result<alloc::vec::Vec<u8>, coqui_transport::frame::FrameError>
+impl coqui_transport::frame::Codec for coqui_transport::frame::PeerFrame
+pub type coqui_transport::frame::PeerFrame::Decoder = coqui_transport::frame::PeerDecoder
+pub fn coqui_transport::frame::PeerFrame::decoder(&self, usize) -> coqui_transport::frame::PeerDecoder
+pub fn coqui_transport::frame::PeerFrame::encode(&self, &[u8], usize) -> core::result::Result<alloc::vec::Vec<u8>, coqui_transport::frame::FrameError>
+impl coqui_transport::frame::Codec for coqui_transport::frame::WebTransportFrame
+pub type coqui_transport::frame::WebTransportFrame::Decoder = coqui_transport::frame::WebTransportDecoder
+pub fn coqui_transport::frame::WebTransportFrame::decoder(&self, usize) -> coqui_transport::frame::WebTransportDecoder
+pub fn coqui_transport::frame::WebTransportFrame::encode(&self, &[u8], usize) -> core::result::Result<alloc::vec::Vec<u8>, coqui_transport::frame::FrameError>
+pub trait coqui_transport::frame::Decode
+pub fn coqui_transport::frame::Decode::buffered(&self) -> usize
+pub fn coqui_transport::frame::Decode::next_frame(&mut self) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::frame::FrameError>
+pub fn coqui_transport::frame::Decode::push(&mut self, &[u8])
+pub fn coqui_transport::frame::Decode::set_maximum(&mut self, usize)
+impl coqui_transport::frame::Decode for coqui_transport::frame::PeerDecoder
+pub fn coqui_transport::frame::PeerDecoder::buffered(&self) -> usize
+pub fn coqui_transport::frame::PeerDecoder::next_frame(&mut self) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::frame::FrameError>
+pub fn coqui_transport::frame::PeerDecoder::push(&mut self, &[u8])
+pub fn coqui_transport::frame::PeerDecoder::set_maximum(&mut self, usize)
+impl coqui_transport::frame::Decode for coqui_transport::frame::WebTransportDecoder
+pub fn coqui_transport::frame::WebTransportDecoder::buffered(&self) -> usize
+pub fn coqui_transport::frame::WebTransportDecoder::next_frame(&mut self) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::frame::FrameError>
+pub fn coqui_transport::frame::WebTransportDecoder::push(&mut self, &[u8])
+pub fn coqui_transport::frame::WebTransportDecoder::set_maximum(&mut self, usize)
+pub mod coqui_transport::memory
+pub struct coqui_transport::memory::ReadHalf(_)
+impl alloc::io::read::Read for coqui_transport::memory::ReadHalf
+pub fn coqui_transport::memory::ReadHalf::read(&mut self, &mut [u8]) -> core::io::error::Result<usize>
+impl core::ops::drop::Drop for coqui_transport::memory::ReadHalf
+pub fn coqui_transport::memory::ReadHalf::drop(&mut self)
+pub struct coqui_transport::memory::Stream
+impl coqui_transport::memory::Stream
+pub fn coqui_transport::memory::Stream::into_halves(self) -> (coqui_transport::memory::ReadHalf, coqui_transport::memory::WriteHalf)
+impl alloc::io::read::Read for coqui_transport::memory::Stream
+pub fn coqui_transport::memory::Stream::read(&mut self, &mut [u8]) -> core::io::error::Result<usize>
+impl coqui_transport::Split for coqui_transport::memory::Stream
+pub type coqui_transport::memory::Stream::Reader = coqui_transport::memory::ReadHalf
+pub type coqui_transport::memory::Stream::Writer = coqui_transport::memory::WriteHalf
+pub fn coqui_transport::memory::Stream::split(self) -> core::io::error::Result<coqui_transport::Halves<coqui_transport::memory::ReadHalf, coqui_transport::memory::WriteHalf>>
+impl core::io::write::Write for coqui_transport::memory::Stream
+pub fn coqui_transport::memory::Stream::flush(&mut self) -> core::io::error::Result<()>
+pub fn coqui_transport::memory::Stream::write(&mut self, &[u8]) -> core::io::error::Result<usize>
+pub struct coqui_transport::memory::WriteHalf(_)
+impl core::io::write::Write for coqui_transport::memory::WriteHalf
+pub fn coqui_transport::memory::WriteHalf::flush(&mut self) -> core::io::error::Result<()>
+pub fn coqui_transport::memory::WriteHalf::write(&mut self, &[u8]) -> core::io::error::Result<usize>
+impl core::ops::drop::Drop for coqui_transport::memory::WriteHalf
+pub fn coqui_transport::memory::WriteHalf::drop(&mut self)
+pub fn coqui_transport::memory::pipe(usize) -> (coqui_transport::memory::Stream, coqui_transport::memory::Stream)
+pub mod coqui_transport::stdio
+pub fn coqui_transport::stdio::current() -> coqui_transport::Duplex<std::io::stdio::Stdin, std::io::stdio::Stdout>
+pub mod coqui_transport::tcp
+pub struct coqui_transport::tcp::Connector
+impl coqui_transport::tcp::Connector
+pub fn coqui_transport::tcp::Connector::addresses(&self) -> &[core::net::socket_addr::SocketAddr]
+pub fn coqui_transport::tcp::Connector::connect(&self, core::time::Duration) -> core::io::error::Result<std::net::tcp::TcpStream>
+pub fn coqui_transport::tcp::Connector::new(impl core::iter::traits::collect::IntoIterator<Item = core::net::socket_addr::SocketAddr>) -> Self
+pub const fn coqui_transport::tcp::Connector::nodelay(self, bool) -> Self
+impl coqui_transport::Connector for coqui_transport::tcp::Connector
+pub type coqui_transport::tcp::Connector::Connection = std::net::tcp::TcpStream
+pub type coqui_transport::tcp::Connector::Error = core::io::error::Error
+pub fn coqui_transport::tcp::Connector::connect(&self, core::time::Duration) -> core::io::error::Result<std::net::tcp::TcpStream>
+impl coqui_transport::asynch::AsyncConnector for coqui_transport::tcp::Connector
+pub type coqui_transport::tcp::Connector::Connection = tokio::net::tcp::stream::TcpStream
+pub type coqui_transport::tcp::Connector::Error = core::io::error::Error
+pub fn coqui_transport::tcp::Connector::connect(&self, core::time::Duration) -> coqui_transport::asynch::BoxFuture<'_, core::io::error::Result<tokio::net::tcp::stream::TcpStream>>
+pub struct coqui_transport::tcp::WriteHalf(_)
+impl coqui_transport::tcp::WriteHalf
+pub const fn coqui_transport::tcp::WriteHalf::get_ref(&self) -> &std::net::tcp::TcpStream
+impl core::io::write::Write for coqui_transport::tcp::WriteHalf
+pub fn coqui_transport::tcp::WriteHalf::flush(&mut self) -> core::io::error::Result<()>
+pub fn coqui_transport::tcp::WriteHalf::write(&mut self, &[u8]) -> core::io::error::Result<usize>
+pub fn coqui_transport::tcp::WriteHalf::write_vectored(&mut self, &[core::io::io_slice::IoSlice<'_>]) -> core::io::error::Result<usize>
+impl core::ops::drop::Drop for coqui_transport::tcp::WriteHalf
+pub fn coqui_transport::tcp::WriteHalf::drop(&mut self)
+pub const coqui_transport::tcp::WAKE: core::time::Duration
+#[non_exhaustive] pub enum coqui_transport::Carrier
+pub coqui_transport::Carrier::Messages
+pub coqui_transport::Carrier::Stream
+pub coqui_transport::Carrier::Unknown
+#[non_exhaustive] pub enum coqui_transport::Delivery
+pub coqui_transport::Delivery::OverStream
+pub coqui_transport::Delivery::Unreliable
+#[non_exhaustive] pub enum coqui_transport::Failure
+pub coqui_transport::Failure::Cancelled
+pub coqui_transport::Failure::Certificate
+pub coqui_transport::Failure::NoProgress
+pub coqui_transport::Failure::PathLost
+pub coqui_transport::Failure::PeerProof
+pub coqui_transport::Failure::Permission
+pub coqui_transport::Failure::Protocol
+pub coqui_transport::Failure::SuspectedMtu
+pub coqui_transport::Failure::Timeout
+pub coqui_transport::Failure::Unsupported
+impl coqui_transport::Failure
+pub const fn coqui_transport::Failure::is_path(self) -> bool
+impl core::error::Error for coqui_transport::Failure
+impl core::fmt::Display for coqui_transport::Failure
+pub fn coqui_transport::Failure::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub struct coqui_transport::Capabilities
+pub coqui_transport::Capabilities::carrier: coqui_transport::Carrier
+pub coqui_transport::Capabilities::datagrams: core::option::Option<coqui_transport::Delivery>
+pub coqui_transport::Capabilities::max_datagram: core::option::Option<usize>
+pub coqui_transport::Capabilities::max_receive: core::option::Option<usize>
+pub coqui_transport::Capabilities::max_send: core::option::Option<usize>
+impl coqui_transport::Capabilities
+pub const fn coqui_transport::Capabilities::new() -> Self
+pub const fn coqui_transport::Capabilities::with_carrier(self, coqui_transport::Carrier) -> Self
+pub const fn coqui_transport::Capabilities::with_datagrams(self, core::option::Option<(coqui_transport::Delivery, core::option::Option<usize>)>) -> Self
+pub const fn coqui_transport::Capabilities::with_limits(self, usize, usize) -> Self
+pub struct coqui_transport::Duplex<R, W>
+impl<R, W> coqui_transport::Duplex<R, W>
+pub fn coqui_transport::Duplex<R, W>::into_parts(self) -> (R, W)
+pub const fn coqui_transport::Duplex<R, W>::new(R, W) -> Self
+pub const fn coqui_transport::Duplex<R, W>::reader(&self) -> &R
+pub const fn coqui_transport::Duplex<R, W>::reader_mut(&mut self) -> &mut R
+pub const fn coqui_transport::Duplex<R, W>::writer(&self) -> &W
+pub const fn coqui_transport::Duplex<R, W>::writer_mut(&mut self) -> &mut W
+impl<R, W: core::io::write::Write> core::io::write::Write for coqui_transport::Duplex<R, W>
+pub fn coqui_transport::Duplex<R, W>::flush(&mut self) -> core::io::error::Result<()>
+pub fn coqui_transport::Duplex<R, W>::write(&mut self, &[u8]) -> core::io::error::Result<usize>
+pub fn coqui_transport::Duplex<R, W>::write_vectored(&mut self, &[core::io::io_slice::IoSlice<'_>]) -> core::io::error::Result<usize>
+impl<R, W> coqui_transport::Split for coqui_transport::Duplex<R, W> where R: alloc::io::read::Read + core::marker::Send + 'static, W: core::io::write::Write + core::marker::Send + 'static
+pub type coqui_transport::Duplex<R, W>::Reader = R
+pub type coqui_transport::Duplex<R, W>::Writer = W
+pub fn coqui_transport::Duplex<R, W>::split(self) -> core::io::error::Result<coqui_transport::Halves<R, W>>
+impl<R: alloc::io::read::Read + core::marker::Send + 'static, W: core::io::write::Write + core::marker::Send + 'static> core::convert::From<coqui_transport::Duplex<R, W>> for coqui_transport::Halves<R, W>
+pub fn coqui_transport::Halves<R, W>::from(coqui_transport::Duplex<R, W>) -> Self
+impl<R: alloc::io::read::Read, W> alloc::io::read::Read for coqui_transport::Duplex<R, W>
+pub fn coqui_transport::Duplex<R, W>::read(&mut self, &mut [u8]) -> core::io::error::Result<usize>
+pub fn coqui_transport::Duplex<R, W>::read_vectored(&mut self, &mut [core::io::io_slice::IoSliceMut<'_>]) -> core::io::error::Result<usize>
+impl<R: core::marker::Unpin, W: tokio::io::async_write::AsyncWrite + core::marker::Unpin> tokio::io::async_write::AsyncWrite for coqui_transport::Duplex<R, W>
+pub fn coqui_transport::Duplex<R, W>::poll_flush(core::pin::Pin<&mut Self>, &mut core::task::wake::Context<'_>) -> core::task::poll::Poll<core::io::error::Result<()>>
+pub fn coqui_transport::Duplex<R, W>::poll_shutdown(core::pin::Pin<&mut Self>, &mut core::task::wake::Context<'_>) -> core::task::poll::Poll<core::io::error::Result<()>>
+pub fn coqui_transport::Duplex<R, W>::poll_write(core::pin::Pin<&mut Self>, &mut core::task::wake::Context<'_>, &[u8]) -> core::task::poll::Poll<core::io::error::Result<usize>>
+impl<R: tokio::io::async_read::AsyncRead + core::marker::Unpin, W: core::marker::Unpin> tokio::io::async_read::AsyncRead for coqui_transport::Duplex<R, W>
+pub fn coqui_transport::Duplex<R, W>::poll_read(core::pin::Pin<&mut Self>, &mut core::task::wake::Context<'_>, &mut tokio::io::read_buf::ReadBuf<'_>) -> core::task::poll::Poll<core::io::error::Result<()>>
+#[non_exhaustive] pub struct coqui_transport::Halves<R, W>
+pub coqui_transport::Halves::interrupt: core::option::Option<coqui_transport::Interrupt>
+pub coqui_transport::Halves::reader: R
+pub coqui_transport::Halves::writer: W
+impl<R, W> coqui_transport::Halves<R, W>
+pub const fn coqui_transport::Halves<R, W>::new(R, W) -> Self
+pub fn coqui_transport::Halves<R, W>::with_interrupt(self, coqui_transport::Interrupt) -> Self
+impl<R, W> coqui_transport::Split for coqui_transport::Halves<R, W> where R: alloc::io::read::Read + core::marker::Send + 'static, W: core::io::write::Write + core::marker::Send + 'static
+pub type coqui_transport::Halves<R, W>::Reader = R
+pub type coqui_transport::Halves<R, W>::Writer = W
+pub fn coqui_transport::Halves<R, W>::split(self) -> core::io::error::Result<Self>
+impl<R: alloc::io::read::Read + core::marker::Send + 'static, W: core::io::write::Write + core::marker::Send + 'static> core::convert::From<coqui_transport::Duplex<R, W>> for coqui_transport::Halves<R, W>
+pub fn coqui_transport::Halves<R, W>::from(coqui_transport::Duplex<R, W>) -> Self
+pub struct coqui_transport::Interrupt(_)
+impl coqui_transport::Interrupt
+pub fn coqui_transport::Interrupt::interrupt(&self)
+pub fn coqui_transport::Interrupt::new(impl core::ops::function::Fn() + core::marker::Send + core::marker::Sync + 'static) -> Self
+impl core::fmt::Debug for coqui_transport::Interrupt
+pub fn coqui_transport::Interrupt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct coqui_transport::StreamChannel
+impl coqui_transport::StreamChannel
+pub const coqui_transport::StreamChannel::DEFAULT_MAX_MESSAGE: usize
+pub const coqui_transport::StreamChannel::DEFAULT_PENDING: usize
+pub const coqui_transport::StreamChannel::DEFAULT_QUEUED_BYTES: usize
+pub const coqui_transport::StreamChannel::DEFAULT_READ_BUFFER: usize
+pub const coqui_transport::StreamChannel::DEFAULT_SEND_LIMIT: core::time::Duration
+pub const fn coqui_transport::StreamChannel::builder<C: coqui_transport::frame::Codec>(C) -> coqui_transport::StreamChannelBuilder<C>
+pub fn coqui_transport::StreamChannel::start<S: coqui_transport::Split, C: coqui_transport::frame::Codec>(S, C) -> core::io::error::Result<Self>
+impl coqui_transport::Channel for coqui_transport::StreamChannel
+pub fn coqui_transport::StreamChannel::capabilities(&self) -> coqui_transport::Capabilities
+pub fn coqui_transport::StreamChannel::close(&self)
+pub fn coqui_transport::StreamChannel::datagrams(&self) -> core::option::Option<&dyn coqui_transport::Datagrams>
+pub fn coqui_transport::StreamChannel::is_closed(&self) -> bool
+pub fn coqui_transport::StreamChannel::peer_certificates(&self) -> core::option::Option<&[alloc::vec::Vec<u8>]>
+pub fn coqui_transport::StreamChannel::receive(&self, core::option::Option<core::time::Duration>) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::Failure>
+pub fn coqui_transport::StreamChannel::send(&self, &[u8]) -> core::result::Result<(), coqui_transport::Failure>
+pub fn coqui_transport::StreamChannel::send_timeout(&self, &[u8], core::option::Option<core::time::Duration>) -> core::result::Result<(), coqui_transport::Failure>
+pub fn coqui_transport::StreamChannel::set_max_message(&self, usize)
+pub fn coqui_transport::StreamChannel::set_max_receive(&self, usize)
+pub fn coqui_transport::StreamChannel::set_max_receive_after(&self, usize, usize) -> core::result::Result<(), coqui_transport::Failure>
+pub fn coqui_transport::StreamChannel::set_max_send(&self, usize)
+pub fn coqui_transport::StreamChannel::set_pending(&self, usize) -> core::result::Result<(), coqui_transport::Failure>
+impl core::fmt::Debug for coqui_transport::StreamChannel
+pub fn coqui_transport::StreamChannel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::ops::drop::Drop for coqui_transport::StreamChannel
+pub fn coqui_transport::StreamChannel::drop(&mut self)
+pub struct coqui_transport::StreamChannelBuilder<C>
+impl<C: coqui_transport::frame::Codec> coqui_transport::StreamChannelBuilder<C>
+pub const fn coqui_transport::StreamChannelBuilder<C>::max_message(self, usize) -> Self
+pub const fn coqui_transport::StreamChannelBuilder<C>::pending(self, usize) -> Self
+pub const fn coqui_transport::StreamChannelBuilder<C>::queued_bytes(self, usize) -> Self
+pub const fn coqui_transport::StreamChannelBuilder<C>::read_buffer(self, usize) -> Self
+pub const fn coqui_transport::StreamChannelBuilder<C>::send_limit(self, core::time::Duration) -> Self
+pub fn coqui_transport::StreamChannelBuilder<C>::start<S: coqui_transport::Split>(self, S) -> core::io::error::Result<coqui_transport::StreamChannel>
+pub fn coqui_transport::StreamChannelBuilder<C>::weakened(&self) -> alloc::vec::Vec<&'static str>
+pub trait coqui_transport::Channel: core::marker::Send + core::marker::Sync
+pub fn coqui_transport::Channel::capabilities(&self) -> coqui_transport::Capabilities
+pub fn coqui_transport::Channel::close(&self)
+pub fn coqui_transport::Channel::datagrams(&self) -> core::option::Option<&dyn coqui_transport::Datagrams>
+pub fn coqui_transport::Channel::is_closed(&self) -> bool
+pub fn coqui_transport::Channel::peer_certificates(&self) -> core::option::Option<&[alloc::vec::Vec<u8>]>
+pub fn coqui_transport::Channel::receive(&self, core::option::Option<core::time::Duration>) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::Failure>
+pub fn coqui_transport::Channel::send(&self, &[u8]) -> core::result::Result<(), coqui_transport::Failure>
+pub fn coqui_transport::Channel::send_timeout(&self, &[u8], core::option::Option<core::time::Duration>) -> core::result::Result<(), coqui_transport::Failure>
+pub fn coqui_transport::Channel::set_max_message(&self, usize)
+pub fn coqui_transport::Channel::set_max_receive(&self, usize)
+pub fn coqui_transport::Channel::set_max_receive_after(&self, usize, usize) -> core::result::Result<(), coqui_transport::Failure>
+pub fn coqui_transport::Channel::set_max_send(&self, usize)
+pub fn coqui_transport::Channel::set_pending(&self, usize) -> core::result::Result<(), coqui_transport::Failure>
+impl coqui_transport::Channel for alloc::boxed::Box<dyn coqui_transport::Channel>
+pub fn alloc::boxed::Box<dyn coqui_transport::Channel>::capabilities(&self) -> coqui_transport::Capabilities
+pub fn alloc::boxed::Box<dyn coqui_transport::Channel>::close(&self)
+pub fn alloc::boxed::Box<dyn coqui_transport::Channel>::datagrams(&self) -> core::option::Option<&dyn coqui_transport::Datagrams>
+pub fn alloc::boxed::Box<dyn coqui_transport::Channel>::is_closed(&self) -> bool
+pub fn alloc::boxed::Box<dyn coqui_transport::Channel>::peer_certificates(&self) -> core::option::Option<&[alloc::vec::Vec<u8>]>
+pub fn alloc::boxed::Box<dyn coqui_transport::Channel>::receive(&self, core::option::Option<core::time::Duration>) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::Failure>
+pub fn alloc::boxed::Box<dyn coqui_transport::Channel>::send(&self, &[u8]) -> core::result::Result<(), coqui_transport::Failure>
+pub fn alloc::boxed::Box<dyn coqui_transport::Channel>::send_timeout(&self, &[u8], core::option::Option<core::time::Duration>) -> core::result::Result<(), coqui_transport::Failure>
+pub fn alloc::boxed::Box<dyn coqui_transport::Channel>::set_max_message(&self, usize)
+pub fn alloc::boxed::Box<dyn coqui_transport::Channel>::set_max_receive(&self, usize)
+pub fn alloc::boxed::Box<dyn coqui_transport::Channel>::set_max_receive_after(&self, usize, usize) -> core::result::Result<(), coqui_transport::Failure>
+pub fn alloc::boxed::Box<dyn coqui_transport::Channel>::set_max_send(&self, usize)
+pub fn alloc::boxed::Box<dyn coqui_transport::Channel>::set_pending(&self, usize) -> core::result::Result<(), coqui_transport::Failure>
+impl coqui_transport::Channel for coqui_transport::StreamChannel
+pub fn coqui_transport::StreamChannel::capabilities(&self) -> coqui_transport::Capabilities
+pub fn coqui_transport::StreamChannel::close(&self)
+pub fn coqui_transport::StreamChannel::datagrams(&self) -> core::option::Option<&dyn coqui_transport::Datagrams>
+pub fn coqui_transport::StreamChannel::is_closed(&self) -> bool
+pub fn coqui_transport::StreamChannel::peer_certificates(&self) -> core::option::Option<&[alloc::vec::Vec<u8>]>
+pub fn coqui_transport::StreamChannel::receive(&self, core::option::Option<core::time::Duration>) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::Failure>
+pub fn coqui_transport::StreamChannel::send(&self, &[u8]) -> core::result::Result<(), coqui_transport::Failure>
+pub fn coqui_transport::StreamChannel::send_timeout(&self, &[u8], core::option::Option<core::time::Duration>) -> core::result::Result<(), coqui_transport::Failure>
+pub fn coqui_transport::StreamChannel::set_max_message(&self, usize)
+pub fn coqui_transport::StreamChannel::set_max_receive(&self, usize)
+pub fn coqui_transport::StreamChannel::set_max_receive_after(&self, usize, usize) -> core::result::Result<(), coqui_transport::Failure>
+pub fn coqui_transport::StreamChannel::set_max_send(&self, usize)
+pub fn coqui_transport::StreamChannel::set_pending(&self, usize) -> core::result::Result<(), coqui_transport::Failure>
+pub trait coqui_transport::Connector
+pub type coqui_transport::Connector::Connection
+pub type coqui_transport::Connector::Error: core::error::Error
+pub fn coqui_transport::Connector::connect(&self, core::time::Duration) -> core::result::Result<Self::Connection, Self::Error>
+impl coqui_transport::Connector for coqui_transport::tcp::Connector
+pub type coqui_transport::tcp::Connector::Connection = std::net::tcp::TcpStream
+pub type coqui_transport::tcp::Connector::Error = core::io::error::Error
+pub fn coqui_transport::tcp::Connector::connect(&self, core::time::Duration) -> core::io::error::Result<std::net::tcp::TcpStream>
+pub trait coqui_transport::Datagrams: core::marker::Send + core::marker::Sync
+pub fn coqui_transport::Datagrams::delivery(&self) -> coqui_transport::Delivery
+pub fn coqui_transport::Datagrams::dropped(&self) -> u64
+pub fn coqui_transport::Datagrams::max_size(&self) -> core::option::Option<usize>
+pub fn coqui_transport::Datagrams::path_changes(&self) -> core::option::Option<std::sync::mpsc::Receiver<coqui_transport::Delivery>>
+pub fn coqui_transport::Datagrams::receive(&self, core::option::Option<core::time::Duration>) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::Failure>
+pub fn coqui_transport::Datagrams::send(&self, &[u8]) -> core::result::Result<(), coqui_transport::Failure>
+pub trait coqui_transport::Listener
+pub type coqui_transport::Listener::Connection
+pub type coqui_transport::Listener::Error: core::error::Error
+pub fn coqui_transport::Listener::accept(&self) -> core::result::Result<Self::Connection, Self::Error>
+impl coqui_transport::Listener for std::net::tcp::TcpListener
+pub type std::net::tcp::TcpListener::Connection = std::net::tcp::TcpStream
+pub type std::net::tcp::TcpListener::Error = core::io::error::Error
+pub fn std::net::tcp::TcpListener::accept(&self) -> core::io::error::Result<std::net::tcp::TcpStream>
+pub trait coqui_transport::Split
+pub type coqui_transport::Split::Reader: alloc::io::read::Read + core::marker::Send + 'static
+pub type coqui_transport::Split::Writer: core::io::write::Write + core::marker::Send + 'static
+pub fn coqui_transport::Split::split(self) -> core::io::error::Result<coqui_transport::Halves<Self::Reader, Self::Writer>>
+impl coqui_transport::Split for coqui_transport::memory::Stream
+pub type coqui_transport::memory::Stream::Reader = coqui_transport::memory::ReadHalf
+pub type coqui_transport::memory::Stream::Writer = coqui_transport::memory::WriteHalf
+pub fn coqui_transport::memory::Stream::split(self) -> core::io::error::Result<coqui_transport::Halves<coqui_transport::memory::ReadHalf, coqui_transport::memory::WriteHalf>>
+impl coqui_transport::Split for std::net::tcp::TcpStream
+pub type std::net::tcp::TcpStream::Reader = std::net::tcp::TcpStream
+pub type std::net::tcp::TcpStream::Writer = coqui_transport::tcp::WriteHalf
+pub fn std::net::tcp::TcpStream::split(self) -> core::io::error::Result<coqui_transport::Halves<Self, coqui_transport::tcp::WriteHalf>>
+impl<R, W> coqui_transport::Split for coqui_transport::Duplex<R, W> where R: alloc::io::read::Read + core::marker::Send + 'static, W: core::io::write::Write + core::marker::Send + 'static
+pub type coqui_transport::Duplex<R, W>::Reader = R
+pub type coqui_transport::Duplex<R, W>::Writer = W
+pub fn coqui_transport::Duplex<R, W>::split(self) -> core::io::error::Result<coqui_transport::Halves<R, W>>
+impl<R, W> coqui_transport::Split for coqui_transport::Halves<R, W> where R: alloc::io::read::Read + core::marker::Send + 'static, W: core::io::write::Write + core::marker::Send + 'static
+pub type coqui_transport::Halves<R, W>::Reader = R
+pub type coqui_transport::Halves<R, W>::Writer = W
+pub fn coqui_transport::Halves<R, W>::split(self) -> core::io::error::Result<Self>
