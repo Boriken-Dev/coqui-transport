@@ -28,7 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `coqui-peer-pipe` `8ae70cd` and `coqui-web-channel` `0b5b05c`.
 - `StreamChannel` and `StreamChannelBuilder`: a `Channel` over any `Split` stream, with settings
   `max_message` (1 MiB), `pending` (64 messages read ahead), `queued_bytes` (64 MiB), `send_limit`
-  (30 s) and `read_buffer` (64 KiB), and `weakened` listing those above their defaults.
+  (30 s), `read_buffer` (64 KiB) and `linger` (500 ms: how long `close` reads and discards, after
+  the peer last sent anything, waiting for the peer's end, so a socket is not reset with bytes
+  unread), and `weakened` listing those above their defaults.
 - `memory::pipe`, two connected in-memory streams with a bounded buffer each way.
 - `stdio::current`, this process's standard input and output as one `Duplex`.
 - `tcp`: `Split` for `std::net::TcpStream` (with `tcp::WriteHalf`; a socket with no read timeout

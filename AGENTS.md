@@ -174,6 +174,7 @@ impl StreamChannel {
     pub const DEFAULT_QUEUED_BYTES: usize;     // 64 MiB
     pub const DEFAULT_SEND_LIMIT: Duration;    // 30 s
     pub const DEFAULT_READ_BUFFER: usize;      // 64 KiB
+    pub const DEFAULT_LINGER: Duration;        // 500 ms
     pub const fn builder<C: Codec>(codec: C) -> StreamChannelBuilder<C>;
     pub fn start<S: Split, C: Codec>(stream: S, codec: C) -> io::Result<Self>;
 }
@@ -183,6 +184,7 @@ impl<C: Codec> StreamChannelBuilder<C> {       // Clone, must_use
     pub const fn queued_bytes(self, bytes: usize) -> Self;       // each message counts its frame + 64
     pub const fn send_limit(self, limit: Duration) -> Self;
     pub const fn read_buffer(self, bytes: usize) -> Self;        // 0 is 1
+    pub const fn linger(self, quiet: Duration) -> Self;          // close's wait for the peer's end
     pub fn weakened(&self) -> Vec<&'static str>;                  // names of settings above their defaults
     pub fn start<S: Split>(self, stream: S) -> io::Result<StreamChannel>;   // splits, starts two threads
 }
@@ -193,11 +195,16 @@ Implements every `Channel` method: staging and `set_pending` return `Ok`, `datag
 `Carrier::Stream` with the current limits. A reader thread decodes and holds up to `pending` messages, judging each by the bound
 for its position; a header over it is `Failure::Protocol` (before its body is read) at both ends, since the stream is then
 ended. The stream ending between frames is `Ok(None)`; inside one, `Failure::PathLost`. `send` encodes at once and queues;
-past `queued_bytes` it is `Failure::NoProgress` (nothing sent, the channel goes on), and `send_timeout` waits for room. A frame
-the stream takes nothing of for `send_limit` ends the channel with `Failure::NoProgress`, seen by the next send waiting on the
-writer, or by the writer on a stream whose writes time out. `close` refuses further sends, waits up to `send_limit` for the
-queue, then drops the writer (the peer reads the end), calls the `Interrupt` and joins both threads; messages already read stay
-readable, then `Ok(None)`. Read and write errors `TimedOut`, `WouldBlock` and `Interrupted` are retried.
+past `queued_bytes` it is `Failure::NoProgress` with `is_closed()` still `false` (nothing sent, the channel goes on), and
+`send_timeout` waits for room. A frame the stream takes nothing of for `send_limit` ends the channel with `Failure::NoProgress`
+(`is_closed()` then `true`), seen by the next send waiting on the writer, or by the writer on a stream whose writes time out.
+Each write call is given at most 64 KiB, so a slow but steady stream shows progress. `close` refuses further sends (then
+`Failure::PathLost`), waits up to `send_limit` for the queue, drops the writer (the peer reads the end), then lets the reader
+read and discard until the peer's end or until the peer has sent nothing for `linger` (never past `send_limit` in all), since
+a socket ended with bytes unread is reset and the peer loses what was sent last; then it calls the `Interrupt` and joins each
+thread, waiting at most `send_limit` for one, or not at all without an `Interrupt`. Messages already read stay readable, then
+`Ok(None)`. Read and write errors `TimedOut`, `WouldBlock` and `Interrupted` are retried. `capabilities().max_receive` is the
+bound for the next message the reader thread reads, which with read-ahead can be past what `receive` returned.
 
 `start` errors when the stream cannot split or a thread cannot start (any target without threads).
 
@@ -268,11 +275,12 @@ impl AsyncChannel for asynch::StreamChannel;
 ```
 
 The async `StreamChannel` spawns nothing and reads nothing ahead: `receive` reads and decodes, `send` writes, on the caller's
-runtime, which needs tokio's I/O and time drivers. A dropped or timed-out `receive` loses nothing. A `send` dropped before its
-first byte sent nothing; one dropped after has its frame finished by the next `send` or `close`, so that message is sent and no
-frame is torn. `send_timeout` bounds only the wait for sends already under way. A write or flush the stream takes nothing of for
-`send_limit` is `Failure::NoProgress`. `close` finishes a frame under way, shuts the writer down and wakes `receive`, which
-returns what is already decoded, then `Ok(None)`. Dropping it without `close` drops the stream as it stands.
+runtime, which needs tokio's I/O and time drivers. A dropped or timed-out `receive` loses nothing. A `send` dropped before the
+stream took its first byte sent nothing; one dropped after has its frame finished by the next `send` or `close`, so that
+message is sent and no frame is torn. `send_timeout` bounds only the wait for sends already under way. A write or flush the
+stream takes nothing of for `send_limit` is `Failure::NoProgress`. `close` finishes a frame under way, shuts the writer down and
+wakes `receive`, which returns what is already decoded, then `Ok(None)`; if a send under way holds the writer past
+`send_limit`, `close` returns without shutting it down. Dropping it without `close` drops the stream as it stands.
 
 ## Gotchas
 
@@ -281,7 +289,12 @@ returns what is already decoded, then `Ok(None)`. Dropping it without `close` dr
   not UTF-8; a pipe or file carries them unchanged. Neither stream can be interrupted, so after `close` a read already waiting on
   standard input ends only when input arrives or ends, and the peer reads the end when this process exits.
 - A `Split` stream with no `Interrupt` (any `Duplex`) cannot wake a blocked read on `close`: its reader thread is left to end on
-  its own and is not joined.
+  its own and is not joined; it discards what it reads next. A thread an `Interrupt` does not wake (a write blocked for good on
+  a custom stream) is left too, after `send_limit`, holding its half of the stream.
+- What a peer can make one channel hold before it is proven: up to `pending` messages of `max_message` read ahead (64 MiB by
+  default) plus one partial frame. Hold an unproven peer to `set_pending(1)` and a small `set_max_receive`, then raise them.
+- `close` waits up to `linger` after the peer last sent anything for the peer's end: a peer that keeps its side open makes each
+  `close` take that long. `linger(Duration::ZERO)` ends the stream at once, at the risk of a reset.
 - A stream in non-blocking mode makes the reader thread spin: give `StreamChannel` a blocking stream (a read timeout is fine).
 - `close` waits up to `send_limit` for the queue; with `Duration::MAX` it waits until the peer takes everything.
 - The legacy codecs carry no datagrams: a datagram would reach an old peer as an ordinary message.
