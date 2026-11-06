@@ -552,16 +552,20 @@ fn closing_while_the_peer_takes_nothing_gives_up_after_the_send_limit() {
 }
 
 #[test]
-fn a_failure_wakes_a_writer_blocked_on_the_stream_and_the_peer_reads_the_end() {
+fn a_failure_ends_the_stream_at_once_waking_a_writer_blocked_on_it() {
     let builder = StreamChannel::builder(PeerFrame)
         .max_message(10)
         .send_limit(Duration::from_secs(60));
     let (channel, mut reader, mut writer) = raw(builder, 8);
-    // The writer blocks on a pipe the peer has not read, then the peer breaks the wire.
-    channel.send(&[0; 10]).unwrap();
+    channel.set_max_send(1000);
+    // The writer blocks after 8 bytes of a 1004-byte frame, then the peer breaks the wire.
+    channel.send(&[0; 1000]).unwrap();
     thread::sleep(Duration::from_millis(50));
     writer.write_all(&11_u32.to_be_bytes()).unwrap();
     assert_eq!(channel.receive(WAIT), Err(Failure::Protocol));
+    thread::sleep(Duration::from_millis(50));
+    // The stream ended with the failure: the peer reads what was in the pipe, then the end, and
+    // not the rest of a frame for a channel that is gone.
     let (done, ended) = std::sync::mpsc::channel();
     thread::spawn(move || {
         let mut rest = Vec::new();
@@ -570,7 +574,10 @@ fn a_failure_wakes_a_writer_blocked_on_the_stream_and_the_peer_reads_the_end() {
     let read = ended
         .recv_timeout(Duration::from_secs(5))
         .expect("the peer reads the end");
-    assert!(read.unwrap() <= 14);
+    assert!(read.unwrap() < 1004, "the peer read the whole frame");
+    let started = Instant::now();
+    channel.close();
+    assert!(started.elapsed() < Duration::from_secs(5));
 }
 
 /// Accepts everything, taking time in proportion to what one call is given, as a blocking socket
