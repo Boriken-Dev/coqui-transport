@@ -1,0 +1,19 @@
+[package]
+name = "legacy-vectors"
+version = "0.0.0"
+description = "Writes the wire vectors of coqui-transport's legacy codecs by running the crates that defined those wires"
+edition = "2024"
+rust-version = "1.89"
+license = "MPL-2.0"
+publish = false
+
+# Its own workspace: it is not part of the crate and builds only when run.
+[workspace]
+
+[dependencies]
+# The revisions whose wires the vectors pin. The big-endian frame is coqui-peer's `write_frame` and
+# coqui-peer-pipe's `Messages`; the little-endian one is coqui-web-channel's `frame` module.
+coqui-peer = { git = "https://github.com/Boriken-Dev/coqui-peer", rev = "1f00bfe6319f64e7ec038a7003746f4f031d538c" }
+coqui-peer-pipe = { git = "https://github.com/Boriken-Dev/coqui-peer-pipe", rev = "8ae70cd42f36ac7a54fea890e2ee006e81cb8775" }
+coqui-web-channel = { git = "https://github.com/Boriken-Dev/coqui-web-channel", rev = "0b5b05c9af3417f6b13edc0fc7d9c86c02a63eca", default-features = false }
+serde_json = "1"
