@@ -1,0 +1,56 @@
+[package]
+name = "coqui-transport"
+version = "0.0.0-alpha.0"
+description = "Streams, message channels and datagrams over any transport: the channel contract, explicit framing codecs, a stream-to-channel adapter, and memory, stdio and TCP adapters"
+readme = "README.md"
+edition = "2024"
+rust-version = "1.89"
+license = "MPL-2.0"
+repository = "https://github.com/Boriken-Dev/coqui-transport"
+homepage = "https://boriken-dev.github.io/coqui-transport/"
+keywords = ["transport", "channel", "framing", "stream", "datagram"]
+categories = ["network-programming", "asynchronous"]
+exclude = [".*", "*.local.*", "/tools/"]
+# Nothing is published until the owner chooses a release.
+publish = false
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = []
+# `asynch`: the async channel, connector and listener traits, an async `StreamChannel` over tokio's AsyncRead and
+# AsyncWrite, and async TCP.
+tokio = ["dep:tokio"]
+
+[dependencies]
+# Async I/O, behind `tokio`: `io-util` for split halves and read/write calls, `net` for TCP, `sync` for the locks a
+# channel's two directions take, `time` for timeouts. No runtime: the caller's runs it.
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "sync", "time"], optional = true }
+
+[dev-dependencies]
+# The shared wire vectors are JSON.
+serde_json = "1"
+# Arbitrary bytes and chunkings for the decoders.
+proptest = { version = "1", default-features = false, features = ["std"] }
+# A runtime for the async tests and examples.
+tokio = { version = "1", default-features = false, features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
+
+[[test]]
+name = "asynch"
+required-features = ["tokio"]
+
+# Starts itself as a child whose standard streams carry frames, which a test harness would write into.
+[[test]]
+name = "stdio"
+harness = false
+
+[[example]]
+name = "async_tcp"
+required-features = ["tokio"]
+
+[lints.rust]
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+unsafe_code = "forbid"
