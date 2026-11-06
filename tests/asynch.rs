@@ -198,6 +198,27 @@ async fn a_send_dropped_after_its_first_byte_still_sends_its_frame_whole() {
 }
 
 #[tokio::test]
+async fn a_send_dropped_before_its_first_byte_sends_nothing() {
+    let (mine, mut theirs) = duplex(64);
+    let channel = StreamChannel::new(mine, PeerFrame);
+    // 64 bytes fill the pipe, so the next send waits for its first write and is dropped there.
+    channel.send(&[1; 60]).await.unwrap();
+    let dropped =
+        tokio::time::timeout(Duration::from_millis(100), channel.send(b"cancelled")).await;
+    assert!(dropped.is_err());
+    let reading = tokio::spawn(async move {
+        let mut wire = Vec::new();
+        theirs.read_to_end(&mut wire).await.unwrap();
+        wire
+    });
+    channel.send(b"third").await.unwrap();
+    channel.close().await;
+    let mut expected = frame(&[1; 60]);
+    expected.extend(frame(b"third"));
+    assert_eq!(reading.await.unwrap(), expected);
+}
+
+#[tokio::test]
 async fn a_send_that_never_got_its_turn_sent_nothing() {
     let (mine, mut theirs) = duplex(8);
     let channel = Arc::new(StreamChannel::new(mine, PeerFrame));

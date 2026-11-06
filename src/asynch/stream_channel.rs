@@ -253,8 +253,23 @@ impl StreamChannel {
             None => {}
         }
         self.finish(writing).await?;
-        writing.partial = Some((frame, 0));
-        self.finish(writing).await
+        // The frame is kept as the one under way only once the stream took part of it, so a send
+        // dropped before then sent nothing.
+        loop {
+            let failure = match within(self.send_limit, writing.writer.write(&frame)).await {
+                None => Failure::NoProgress,
+                Some(Ok(0)) => Failure::PathLost,
+                Some(Ok(count)) => {
+                    writing.partial = Some((frame, count));
+                    return self.finish(writing).await;
+                }
+                Some(Err(error)) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Some(Err(_)) => Failure::PathLost,
+            };
+            writing.ended = Some(failure);
+            self.stop(Stop::Failed(failure));
+            return Err(failure);
+        }
     }
 
     /// Writes what is left of the frame under way, then flushes.
