@@ -1,0 +1,288 @@
+# `coqui-transport` — API header
+
+Header-file-style reference for the `coqui-transport` crate: every public item with its signature, contract and gotchas, so the
+crate can be used without reading its source. It ships inside the package and is self-contained. Development documentation lives
+with the source at <https://github.com/Boriken-Dev/coqui-transport>.
+
+| Feature | Adds | Needed for | Default |
+| --- | --- | --- | --- |
+| `tokio` | `asynch::{AsyncChannel, AsyncConnector, AsyncListener, BoxFuture, StreamChannel, StreamChannelBuilder}`, `Duplex` as `AsyncRead`/`AsyncWrite`, `AsyncConnector for tcp::Connector`, `AsyncListener for tokio::net::TcpListener`; on `tokio` with `io-util`, `net`, `sync`, `time` | async transports | off |
+
+MSRV Rust 1.89. A default build depends on nothing beyond `std`. Version `0.0.0-alpha.0`, not published; the API may change in
+any release before 1.0. The default build compiles for `wasm32-unknown-unknown`; `--features tokio` does not (tokio's `net`).
+
+Imports: the root holds `Channel`, `Datagrams`, `Delivery`, `Failure`, `Capabilities`, `Carrier`, `Connector`, `Listener`,
+`Duplex`, `Halves`, `Interrupt`, `Split`, `StreamChannel`, `StreamChannelBuilder`. Public modules: `frame`, `memory`, `stdio`,
+`tcp`, `asynch` (feature `tokio`).
+
+No `unsafe` code (`#![forbid(unsafe_code)]`). No process-wide state. The library prints nothing and starts no runtime; the only
+threads it starts are a `StreamChannel`'s two.
+
+## Channels (crate root)
+
+```rust
+pub trait Channel: Send + Sync {
+    fn send(&self, message: &[u8]) -> Result<(), Failure>;
+    fn receive(&self, timeout: Option<Duration>) -> Result<Option<Vec<u8>>, Failure>;   // None: the peer closed in order
+    fn close(&self);                                                                       // repeatable, also after a failure
+    fn set_max_message(&self, _bytes: usize) {}                                            // both ways, from now on; default ignores it
+    fn set_max_receive(&self, _bytes: usize) {}
+    fn set_max_receive_after(&self, messages: usize, bytes: usize) -> Result<(), Failure> { /* 0: set_max_receive; else Err(Unsupported) */ }
+    fn set_pending(&self, _messages: usize) -> Result<(), Failure> { Err(Failure::Unsupported) }   // read-ahead; 0 is 1
+    fn set_max_send(&self, _bytes: usize) {}
+    fn send_timeout(&self, message: &[u8], _timeout: Option<Duration>) -> Result<(), Failure> { self.send(message) }
+    fn datagrams(&self) -> Option<&dyn Datagrams> { None }
+    fn peer_certificates(&self) -> Option<&[Vec<u8>]> { None }                           // DER, peer's first: transport metadata only
+    fn capabilities(&self) -> Capabilities { /* only what datagrams() says */ }
+    fn is_closed(&self) -> bool { false }
+}
+impl Channel for Box<dyn Channel>                                                          // forwards every method
+```
+
+A reliable, ordered channel of whole messages, not authenticated: whoever opened it runs the peer's proof before trusting what
+arrives. `receive`: `Failure::Timeout` when nothing arrived in time (the channel goes on); `None` waits without limit; any other
+failure ended the channel. `send`: `Failure::Protocol` for a message outside its bounds (the channel goes on).
+
+`set_max_receive_after(n, bytes)` stages the read bound by position: the next `n` messages `receive` has not returned are held to
+the bound in force, every one after them to `bytes`, however far the driver reads ahead. Positions count from what `receive` has
+returned at the call. A later `set_max_receive_after`, `set_max_receive` or `set_max_message` replaces a stage not reached.
+
+`set_pending(n)`: the driver holds at most `n` unreturned messages and reads nothing more until the reader takes one, so the
+peer's sends wait. A lower limit drops nothing; a higher one lets the driver read on at once.
+
+`send_timeout`: waits up to `timeout` for room; `Failure::Timeout` means nothing was sent and the channel goes on.
+
+`capabilities()` is a snapshot when called: ask again after anything that can change it. `is_closed()`: `true` once this side
+knows the channel ended (closed here, a failure, or the peer's end); `false` promises nothing.
+
+```rust
+pub enum Delivery { Unreliable, OverStream }                                               // non_exhaustive
+
+pub trait Datagrams: Send + Sync {
+    fn max_size(&self) -> Option<usize>;                                                   // fits now; None: peer takes none
+    fn send(&self, payload: &[u8]) -> Result<(), Failure>;                                 // Protocol if too large; Unsupported; PathLost
+    fn receive(&self, timeout: Option<Duration>) -> Result<Option<Vec<u8>>, Failure>;      // None once the connection ended
+    fn dropped(&self) -> u64;                                                              // discarded on this side
+    fn delivery(&self) -> Delivery;                                                        // how they travel now
+    fn path_changes(&self) -> Option<std::sync::mpsc::Receiver<Delivery>> { None }         // each later change; None: never changes
+}
+```
+
+`Unreliable`: real network datagrams, lost, reordered or repeated, never held up. `OverStream`: inside the channel's ordered
+stream, in order and late rather than lost, lost only where a queue is full (counted by `dropped`). Emulated datagrams are never
+`Unreliable`. Datagrams are outside any identity proof run on the messages.
+
+## Failures (crate root)
+
+```rust
+pub enum Failure {                                                                         // non_exhaustive, Copy, Error
+    Unsupported, Timeout, PathLost, NoProgress, SuspectedMtu,
+    Certificate, PeerProof, Protocol, Permission, Cancelled,
+}
+impl Failure { pub const fn is_path(self) -> bool }                                        // the first five
+```
+
+## Capabilities (crate root)
+
+```rust
+pub enum Carrier { Unknown /* default */, Messages, Stream }                               // non_exhaustive
+pub struct Capabilities {                                                                  // non_exhaustive, Copy, Default
+    pub carrier: Carrier,
+    pub max_send: Option<usize>,
+    pub max_receive: Option<usize>,
+    pub datagrams: Option<Delivery>,
+    pub max_datagram: Option<usize>,
+}
+impl Capabilities {
+    pub const fn new() -> Self;                                                            // nothing reported
+    pub const fn with_carrier(self, carrier: Carrier) -> Self;
+    pub const fn with_limits(self, max_send: usize, max_receive: usize) -> Self;
+    pub const fn with_datagrams(self, datagrams: Option<(Delivery, Option<usize>)>) -> Self;
+}
+```
+
+`Carrier::Stream`: frames on one ordered byte stream, so one late message holds up every message behind it.
+
+## Connecting (crate root)
+
+```rust
+pub trait Connector { type Connection; type Error: core::error::Error;
+    fn connect(&self, timeout: Duration) -> Result<Self::Connection, Self::Error>; }
+pub trait Listener { type Connection; type Error: core::error::Error;
+    fn accept(&self) -> Result<Self::Connection, Self::Error>; }
+```
+
+Kept apart from channels: a transport implements only what it has. A connection is not an authenticated peer.
+
+## Streams (crate root)
+
+```rust
+pub struct Duplex<R, W>;                       // Read from R, Write to W; Clone, Debug, Default
+impl<R, W> Duplex<R, W> {
+    pub const fn new(reader: R, writer: W) -> Self;
+    pub const fn reader(&self) -> &R;  pub const fn writer(&self) -> &W;
+    pub const fn reader_mut(&mut self) -> &mut R;  pub const fn writer_mut(&mut self) -> &mut W;
+    pub fn into_parts(self) -> (R, W);
+}
+pub struct Interrupt;                          // Clone; ends both directions from any thread, may be called again
+impl Interrupt { pub fn new(end: impl Fn() + Send + Sync + 'static) -> Self; pub fn interrupt(&self); }
+pub struct Halves<R, W> { pub reader: R, pub writer: W, pub interrupt: Option<Interrupt> }   // non_exhaustive
+impl<R, W> Halves<R, W> { pub const fn new(reader: R, writer: W) -> Self; pub fn with_interrupt(self, i: Interrupt) -> Self; }
+pub trait Split {
+    type Reader: Read + Send + 'static;
+    type Writer: Write + Send + 'static;       // dropping it ends the write direction
+    fn split(self) -> io::Result<Halves<Self::Reader, Self::Writer>>;
+}
+impl Split for Halves<R, W>; impl Split for Duplex<R, W>;      // no interrupt from a Duplex
+impl From<Duplex<R, W>> for Halves<R, W>;
+```
+
+With `tokio`, `Duplex<R, W>` is `AsyncRead` when `R: AsyncRead + Unpin, W: Unpin` and `AsyncWrite` when `W: AsyncWrite + Unpin`.
+
+## Framing (`coqui_transport::frame`)
+
+```rust
+pub const DEFAULT_MAX_MESSAGE: usize = 1024 * 1024;
+pub enum FrameError { Size, Tag }                                                          // non_exhaustive
+pub trait Codec: Send + Sync + 'static {
+    type Decoder: Decode + Send + 'static;
+    fn encode(&self, message: &[u8], maximum: usize) -> Result<Vec<u8>, FrameError>;      // Size: over maximum, too long, or refused empty
+    fn decoder(&self, maximum: usize) -> Self::Decoder;
+}
+pub trait Decode {                                                                         // object-safe
+    fn set_maximum(&mut self, maximum: usize);                                             // from the next header checked
+    fn push(&mut self, part: &[u8]);                                                       // a failed decoder discards it
+    fn next_frame(&mut self) -> Result<Option<Vec<u8>>, FrameError>;                       // Size, and on every later call
+    fn buffered(&self) -> usize;                                                           // 0 between frames
+}
+pub struct PeerFrame;          pub struct PeerDecoder;          // big-endian u32 length; an empty message is a message
+pub struct WebTransportFrame;  pub struct WebTransportDecoder;  // little-endian u32 length; empty refused both ways
+```
+
+`PeerFrame` is the frame of `coqui_peer::write_frame` and `coqui-peer-pipe`; `WebTransportFrame` is `coqui-web-channel`'s
+WebTransport stream frame. Neither is a default and neither is ever guessed. The decoders also have the `Decode` methods
+inherently, and `new(maximum)`. A decoder returns frames complete before a bad header first, then fails for good and holds
+nothing. It never allocates for a declared length, only for bytes pushed. Neither codec carries datagrams, logical channels or a
+version.
+
+## StreamChannel (crate root)
+
+```rust
+impl StreamChannel {
+    pub const DEFAULT_MAX_MESSAGE: usize;      // 1 MiB
+    pub const DEFAULT_PENDING: usize;          // 64
+    pub const DEFAULT_QUEUED_BYTES: usize;     // 64 MiB
+    pub const DEFAULT_SEND_LIMIT: Duration;    // 30 s
+    pub const DEFAULT_READ_BUFFER: usize;      // 64 KiB
+    pub const fn builder<C: Codec>(codec: C) -> StreamChannelBuilder<C>;
+    pub fn start<S: Split, C: Codec>(stream: S, codec: C) -> io::Result<Self>;
+}
+impl<C: Codec> StreamChannelBuilder<C> {       // Clone, must_use
+    pub const fn max_message(self, bytes: usize) -> Self;
+    pub const fn pending(self, messages: usize) -> Self;         // 0 is 1
+    pub const fn queued_bytes(self, bytes: usize) -> Self;       // each message counts its frame + 64
+    pub const fn send_limit(self, limit: Duration) -> Self;
+    pub const fn read_buffer(self, bytes: usize) -> Self;        // 0 is 1
+    pub fn weakened(&self) -> Vec<&'static str>;                  // names of settings above their defaults
+    pub fn start<S: Split>(self, stream: S) -> io::Result<StreamChannel>;   // splits, starts two threads
+}
+impl Channel for StreamChannel; impl Drop for StreamChannel;     // drop closes
+```
+
+Implements every `Channel` method: staging and `set_pending` return `Ok`, `datagrams()` is `None`, `capabilities()` is
+`Carrier::Stream` with the current limits. A reader thread decodes and holds up to `pending` messages, judging each by the bound
+for its position; a header over it is `Failure::Protocol` (before its body is read) at both ends, since the stream is then
+ended. The stream ending between frames is `Ok(None)`; inside one, `Failure::PathLost`. `send` encodes at once and queues;
+past `queued_bytes` it is `Failure::NoProgress` (nothing sent, the channel goes on), and `send_timeout` waits for room. A frame
+the stream takes nothing of for `send_limit` ends the channel with `Failure::NoProgress`, seen by the next send waiting on the
+writer, or by the writer on a stream whose writes time out. `close` refuses further sends, waits up to `send_limit` for the
+queue, then drops the writer (the peer reads the end), calls the `Interrupt` and joins both threads; messages already read stay
+readable, then `Ok(None)`. Read and write errors `TimedOut`, `WouldBlock` and `Interrupted` are retried.
+
+`start` errors when the stream cannot split or a thread cannot start (any target without threads).
+
+## Adapters
+
+```rust
+// coqui_transport::memory
+pub fn pipe(capacity: usize) -> (Stream, Stream);              // each way at most capacity unread bytes; 0 is 1
+pub struct Stream;  impl Read, Write, Split for Stream;         // split gives an Interrupt
+impl Stream { pub fn into_halves(self) -> (ReadHalf, WriteHalf); }   // no Interrupt
+pub struct ReadHalf;  impl Read;   // dropped: the other end's writes fail BrokenPipe
+pub struct WriteHalf; impl Write;  // dropped: the other end reads the end after what was written
+
+// coqui_transport::stdio
+pub fn current() -> Duplex<Stdin, Stdout>;
+
+// coqui_transport::tcp
+pub const WAKE: Duration;                                      // 250 ms: the read timeout split gives a socket with none
+impl Split for TcpStream { type Reader = TcpStream; type Writer = tcp::WriteHalf; }   // Interrupt: shutdown(Both)
+pub struct WriteHalf; impl Write; impl WriteHalf { pub const fn get_ref(&self) -> &TcpStream; }   // drop: shutdown(Write)
+pub struct Connector;                                          // Clone, must_use
+impl Connector {
+    pub fn new(addresses: impl IntoIterator<Item = SocketAddr>) -> Self;
+    pub const fn nodelay(self, nodelay: bool) -> Self;          // default true
+    pub fn addresses(&self) -> &[SocketAddr];
+    pub fn connect(&self, timeout: Duration) -> io::Result<TcpStream>;
+}
+impl coqui_transport::Connector for tcp::Connector { type Connection = TcpStream; type Error = io::Error; }
+impl Listener for TcpListener { type Connection = TcpStream; type Error = io::Error; }
+```
+
+A memory blocked read woken by the interrupt fails `ConnectionAborted`, a blocked write `BrokenPipe`. Splitting a
+`TcpStream` with no read timeout sets `WAKE` on it, so a split reading half's reads end with `WouldBlock`/`TimedOut` that often
+(a `StreamChannel` retries them): a Windows socket's `shutdown` does not wake a read blocked in another thread. `tcp::Connector::connect`
+tries each address in order within one `timeout`: the last address's error, `TimedOut`, or `InvalidInput` for no address or a
+zero timeout; a timeout too long for the clock is none. It resolves no names.
+
+## Async (`coqui_transport::asynch`, feature `tokio`)
+
+```rust
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+pub trait AsyncChannel: Send + Sync {                                                     // object-safe
+    fn send<'a>(&'a self, message: &'a [u8]) -> BoxFuture<'a, Result<(), Failure>>;
+    fn send_timeout<'a>(&'a self, message: &'a [u8], timeout: Option<Duration>) -> BoxFuture<'a, Result<(), Failure>> { self.send(message) }
+    fn receive(&self, timeout: Option<Duration>) -> BoxFuture<'_, Result<Option<Vec<u8>>, Failure>>;
+    fn close(&self) -> BoxFuture<'_, ()>;
+    fn set_max_message(&self, _: usize) {}  fn set_max_receive(&self, _: usize) {}  fn set_max_send(&self, _: usize) {}
+    fn set_max_receive_after(&self, messages: usize, bytes: usize) -> Result<(), Failure> { /* as Channel */ }
+    fn capabilities(&self) -> Capabilities { Capabilities::new() }
+    fn is_closed(&self) -> bool { false }
+}
+pub trait AsyncConnector { type Connection: Send; type Error: Error + Send;
+    fn connect(&self, timeout: Duration) -> BoxFuture<'_, Result<Self::Connection, Self::Error>>; }
+pub trait AsyncListener { type Connection: Send; type Error: Error + Send;
+    fn accept(&self) -> BoxFuture<'_, Result<Self::Connection, Self::Error>>; }
+
+impl StreamChannel {                               // asynch::StreamChannel
+    pub const DEFAULT_MAX_MESSAGE: usize; pub const DEFAULT_SEND_LIMIT: Duration; pub const DEFAULT_READ_BUFFER: usize;
+    pub const fn builder<C: Codec>(codec: C) -> StreamChannelBuilder<C>;
+    pub fn new<S: AsyncRead + AsyncWrite + Send + 'static, C: Codec>(stream: S, codec: C) -> Self;   // no I/O
+}
+impl<C: Codec> StreamChannelBuilder<C> {
+    pub const fn max_message(self, bytes: usize) -> Self; pub const fn send_limit(self, limit: Duration) -> Self;
+    pub const fn read_buffer(self, bytes: usize) -> Self; pub fn weakened(&self) -> Vec<&'static str>;
+    pub fn build<S: AsyncRead + AsyncWrite + Send + 'static>(self, stream: S) -> StreamChannel;
+}
+impl AsyncChannel for asynch::StreamChannel;
+```
+
+The async `StreamChannel` spawns nothing and reads nothing ahead: `receive` reads and decodes, `send` writes, on the caller's
+runtime, which needs tokio's I/O and time drivers. A dropped or timed-out `receive` loses nothing. A `send` dropped before its
+first byte sent nothing; one dropped after has its frame finished by the next `send` or `close`, so that message is sent and no
+frame is torn. `send_timeout` bounds only the wait for sends already under way. A write or flush the stream takes nothing of for
+`send_limit` is `Failure::NoProgress`. `close` finishes a frame under way, shuts the writer down and wakes `receive`, which
+returns what is already decoded, then `Ok(None)`. Dropping it without `close` drops the stream as it stands.
+
+## Gotchas
+
+- A channel is not an authenticated peer, and `peer_certificates` is transport metadata, not application identity.
+- Over `stdio::current()`, nothing else in the process may write to standard output. A Windows console refuses bytes that are
+  not UTF-8; a pipe or file carries them unchanged. Neither stream can be interrupted, so after `close` a read already waiting on
+  standard input ends only when input arrives or ends, and the peer reads the end when this process exits.
+- A `Split` stream with no `Interrupt` (any `Duplex`) cannot wake a blocked read on `close`: its reader thread is left to end on
+  its own and is not joined.
+- A stream in non-blocking mode makes the reader thread spin: give `StreamChannel` a blocking stream (a read timeout is fine).
+- `close` waits up to `send_limit` for the queue; with `Duration::MAX` it waits until the peer takes everything.
+- The legacy codecs carry no datagrams: a datagram would reach an old peer as an ordinary message.
+- `Failure::recovery`, `Kind`, `Phase`, `Recovery`, `Dialer`, `connect`, `Preflight` and endpoints are not in this crate.

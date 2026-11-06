@@ -1,0 +1,35 @@
+site_name: coqui-transport
+site_description: Streams, message channels and datagrams over any transport.
+site_url: https://boriken-dev.github.io/coqui-transport/
+repo_url: https://github.com/Boriken-Dev/coqui-transport
+repo_name: Boriken-Dev/coqui-transport
+edit_uri: edit/main/docs/
+
+# Constrained to docs/ so a strict build does not scan the repository's own markdown.
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Rust API: https://boriken-dev.github.io/coqui-transport/rust/index.html
+
+markdown_extensions:
+  - admonition
+  - tables
+  - pymdownx.superfences
