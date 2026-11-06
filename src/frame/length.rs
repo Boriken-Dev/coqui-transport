@@ -6,6 +6,10 @@ use super::{Codec, Decode, FrameError};
 
 const PREFIX: usize = 4;
 
+/// The most room a decoder keeps once it holds nothing, so one large message does not keep its
+/// buffer for the decoder's life.
+const RETAINED: usize = 64 * 1024;
+
 /// What tells the two wires apart.
 #[derive(Clone, Copy, Debug)]
 struct Layout {
@@ -100,6 +104,7 @@ impl Lengths {
         self.start += PREFIX + size;
         if self.start == self.held.len() {
             self.held.clear();
+            self.held.shrink_to(RETAINED);
             self.start = 0;
         }
         Ok(Some(message))
@@ -308,6 +313,17 @@ mod tests {
         assert_eq!(decoder.next_frame(), Ok(None));
         assert!(decoder.0.held.capacity() < 64);
         assert_eq!(decoder.buffered(), PREFIX);
+    }
+
+    #[test]
+    fn a_decoder_gives_back_the_room_a_large_message_took() {
+        let mut decoder = PeerDecoder::new(1 << 20);
+        decoder.push(&PeerFrame.encode(&[0; 1 << 20], 1 << 20).unwrap());
+        assert_eq!(
+            decoder.next_frame().unwrap().map(|m| m.len()),
+            Some(1 << 20)
+        );
+        assert!(decoder.0.held.capacity() <= RETAINED);
     }
 
     #[test]
