@@ -29,13 +29,9 @@ cargo test --all-features
 cargo test --no-default-features
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
 cargo check --target wasm32-unknown-unknown
-cargo run --manifest-path tools/legacy-vectors/Cargo.toml -- vectors --check
 ```
 
 All checks must pass. [`AGENTS.md`](AGENTS.md) is the crate's API header and ships in the
 package; keep it current with the public API in the same commit, and regenerate
 `tools/public-api.txt` (the command is in `.github/workflows/test.yml`). Files are LF, on every
 platform. The Rust version is 1.89, checked in CI beside stable.
-
-The vectors in `vectors/` are never edited by hand: `tools/legacy-vectors` writes them from the
-crates that defined each wire, and a codec change that alters them is a wire change.

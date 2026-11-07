@@ -8,9 +8,8 @@ carried. `coqui-transport` holds what every Coqui transport shares:
   ordered stream;
 - **capabilities** a channel reports as they stand, asked again whenever they matter;
 - **connectors and listeners**, apart from any established channel;
-- **framing codecs** that turn a byte stream into messages, two of them the wires already in use:
-  `PeerFrame` (big-endian length, empty messages allowed) and `WebTransportFrame` (little-endian
-  length, empty messages refused), pinned by shared vectors;
+- **a framing codec** that turns a byte stream into messages: `LengthPrefix`, a one-, two- or
+  four-byte length, big- or little-endian, empty messages allowed or refused;
 - **`StreamChannel`**, one stream-to-channel adapter for every byte stream, blocking or on tokio;
 - adapters for **memory**, this process's **standard streams** and **TCP**.
 
@@ -22,14 +21,14 @@ It knows nothing of peers, trust or applications: a channel is never an authenti
 ```rust
 use std::net::TcpStream;
 use coqui_transport::{Channel, StreamChannel};
-use coqui_transport::frame::PeerFrame;
+use coqui_transport::frame::LengthPrefix;
 
-let channel = StreamChannel::start(TcpStream::connect("127.0.0.1:4000")?, PeerFrame)?;
+let channel = StreamChannel::start(TcpStream::connect("127.0.0.1:4000")?, LengthPrefix::u32_be())?;
 channel.send(b"hello")?;
 let answer = channel.receive(Some(std::time::Duration::from_secs(5)))?;
 ```
 
 The API reference is under
 [Rust API](https://boriken-dev.github.io/coqui-transport/rust/index.html) for `main`. The source,
-the API header (`AGENTS.md`), the vectors and the changelog are in the
+the API header (`AGENTS.md`) and the changelog are in the
 [repository](https://github.com/Boriken-Dev/coqui-transport).

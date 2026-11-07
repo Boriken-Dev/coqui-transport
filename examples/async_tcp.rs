@@ -6,7 +6,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
 use coqui_transport::asynch::{AsyncChannel, AsyncConnector, AsyncListener, StreamChannel};
-use coqui_transport::frame::PeerFrame;
+use coqui_transport::frame::LengthPrefix;
 use coqui_transport::tcp;
 
 #[tokio::main(flavor = "current_thread")]
@@ -17,7 +17,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let server = tokio::spawn(async move {
         let stream = AsyncListener::accept(&listener).await?;
-        let channel: Box<dyn AsyncChannel> = Box::new(StreamChannel::new(stream, PeerFrame));
+        let channel: Box<dyn AsyncChannel> =
+            Box::new(StreamChannel::new(stream, LengthPrefix::u32_be()));
         while let Ok(Some(message)) = channel.receive(None).await {
             let mut answer = b"echo: ".to_vec();
             answer.extend_from_slice(&message);
@@ -31,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let stream =
         AsyncConnector::connect(&tcp::Connector::new([address]), Duration::from_secs(5)).await?;
-    let channel = StreamChannel::new(stream, PeerFrame);
+    let channel = StreamChannel::new(stream, LengthPrefix::u32_be());
     channel.send(b"hello").await?;
     let answer = channel.receive(Some(Duration::from_secs(5))).await?;
     println!("{:?}", answer.as_deref().map(String::from_utf8_lossy));

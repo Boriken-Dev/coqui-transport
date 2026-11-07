@@ -7,7 +7,7 @@
 use std::process::{Command, ExitCode, Stdio};
 use std::time::Duration;
 
-use coqui_transport::frame::PeerFrame;
+use coqui_transport::frame::LengthPrefix;
 use coqui_transport::{Channel, Duplex, StreamChannel, stdio};
 
 const CHILD: &str = "COQUI_TRANSPORT_TEST_STDIO_CHILD";
@@ -15,7 +15,7 @@ const WAIT: Option<Duration> = Some(Duration::from_secs(20));
 
 /// The child: answers every message with its bytes reversed, until its input ends.
 fn child() -> ExitCode {
-    let Ok(channel) = StreamChannel::start(stdio::current(), PeerFrame) else {
+    let Ok(channel) = StreamChannel::start(stdio::current(), LengthPrefix::u32_be()) else {
         return ExitCode::from(3);
     };
     loop {
@@ -45,7 +45,7 @@ fn parent() -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     let input = process.stdin.take().ok_or("no child stdin")?;
     let output = process.stdout.take().ok_or("no child stdout")?;
-    let channel = StreamChannel::start(Duplex::new(output, input), PeerFrame)
+    let channel = StreamChannel::start(Duplex::new(output, input), LengthPrefix::u32_be())
         .map_err(|error| error.to_string())?;
 
     // Bytes a text mode would translate or stop at: newlines, carriage returns, Ctrl-Z, and bytes

@@ -4,29 +4,28 @@
 //! frames again in bytes as they arrive, whatever their fragmentation or coalescing. Codecs are
 //! never guessed: both ends are configured for the same one.
 //!
-//! Two codecs are the wires already in use, kept byte for byte and named for whose they are:
+//! [`LengthPrefix`] is the codec this crate provides: a one-, two- or four-byte length, big- or
+//! little-endian, and an empty message either allowed or refused, each chosen by name:
 //!
-//! | Codec | Prefix | Empty message | Wire of |
-//! | --- | --- | --- | --- |
-//! | [`PeerFrame`] | big-endian `u32` length | a message | `coqui_peer::write_frame`, `coqui-peer-pipe` |
-//! | [`WebTransportFrame`] | little-endian `u32` length | refused both ways | `coqui-web-channel`'s WebTransport streams |
+//! ```
+//! use coqui_transport::frame::{Codec, LengthPrefix};
 //!
-//! Neither carries anything but messages: a datagram, a second logical channel or a version would
-//! reach an old peer as an ordinary message. Those need a framing both ends agree to, which is a
-//! codec of its own beside these, never a change to them.
+//! let codec = LengthPrefix::u32_le().refuse_empty();
+//! assert_eq!(codec.encode(b"ab", 10).unwrap(), [2, 0, 0, 0, b'a', b'b']);
+//! ```
 //!
-//! The bytes each produces and accepts are pinned by the vectors in the repository's `vectors/`
-//! directory, generated from the crates that wrote these wires first.
+//! It carries nothing but messages: a datagram, a second logical channel or a version would reach a
+//! peer as an ordinary message. Those need a framing both ends agree to, which is a codec of its own
+//! beside this one. A protocol's own framing is a preset of a codec, defined where the protocol is.
 
 mod length;
 
 use alloc::vec::Vec;
 use core::fmt;
 
-pub use length::{PeerDecoder, PeerFrame, WebTransportDecoder, WebTransportFrame};
+pub use length::{LengthDecoder, LengthPrefix};
 
-/// The largest message a codec's user accepts unless the application chooses otherwise: 1 MiB, the
-/// default of both legacy wires.
+/// The largest message a codec's user accepts unless the application chooses otherwise: 1 MiB.
 pub const DEFAULT_MAX_MESSAGE: usize = 1024 * 1024;
 
 /// A frame outside the bounds this side accepts.

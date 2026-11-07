@@ -155,15 +155,25 @@ pub trait Decode {                                                              
     fn next_frame(&mut self) -> Result<Option<Vec<u8>>, FrameError>;                       // Size, and on every later call
     fn buffered(&self) -> usize;                                                           // 0 between frames
 }
-pub struct PeerFrame;          pub struct PeerDecoder;          // big-endian u32 length; an empty message is a message
-pub struct WebTransportFrame;  pub struct WebTransportDecoder;  // little-endian u32 length; empty refused both ways
+
+pub struct LengthPrefix;                       // Clone, Copy, Debug, Eq, Hash, must_use: a fixed-width length, then the message
+impl LengthPrefix {
+    pub const fn u8() -> Self;                 // 1 byte: messages of at most 255 bytes
+    pub const fn u16_be() -> Self;  pub const fn u16_le() -> Self;      // 2 bytes: at most 65535
+    pub const fn u32_be() -> Self;  pub const fn u32_le() -> Self;      // 4 bytes
+    pub const fn allow_empty(self) -> Self;    // every constructor leaves it so
+    pub const fn refuse_empty(self) -> Self;   // encode fails on an empty message, a header declaring one fails the decoder
+    pub const fn width(&self) -> usize;  pub const fn is_big_endian(&self) -> bool;  pub const fn empty_allowed(&self) -> bool;
+}
+impl Codec for LengthPrefix { type Decoder = LengthDecoder; }
+pub struct LengthDecoder;                      // Debug; LengthDecoder::new(prefix: LengthPrefix, maximum: usize); implements Decode
 ```
 
-`PeerFrame` is the frame of `coqui_peer::write_frame` and `coqui-peer-pipe`; `WebTransportFrame` is `coqui-web-channel`'s
-WebTransport stream frame. Neither is a default and neither is ever guessed. The decoders also have the `Decode` methods
-inherently, and `new(maximum)`. A decoder returns frames complete before a bad header first, then fails for good and holds
-nothing. It never allocates for a declared length, only for bytes pushed. Neither codec carries datagrams, logical channels or a
-version.
+There is no default codec and none is ever guessed: both ends are configured for the same one, and nothing in the bytes says
+which. `encode` refuses (`FrameError::Size`) a message over `maximum`, one the width cannot declare (256 bytes on `u8`), or an
+empty one where refused. A decoder returns frames complete before a bad header first, then fails for good and holds nothing. It
+never allocates for a declared length, only for bytes pushed. `LengthPrefix` carries messages only: no datagrams, logical
+channels or version. A protocol's own framing is a preset of it, defined where the protocol is.
 
 ## StreamChannel (crate root)
 
@@ -297,5 +307,6 @@ wakes `receive`, which returns what is already decoded, then `Ok(None)`; if a se
   `close` take that long. `linger(Duration::ZERO)` ends the stream at once, at the risk of a reset.
 - A stream in non-blocking mode makes the reader thread spin: give `StreamChannel` a blocking stream (a read timeout is fine).
 - `close` waits up to `send_limit` for the queue; with `Duration::MAX` it waits until the peer takes everything.
-- The legacy codecs carry no datagrams: a datagram would reach an old peer as an ordinary message.
-- `Failure::recovery`, `Kind`, `Phase`, `Recovery`, `Dialer`, `connect`, `Preflight` and endpoints are not in this crate.
+- `LengthPrefix` carries no datagrams: a datagram would reach a peer as an ordinary message.
+- `Failure::recovery`, `Kind`, `Phase`, `Recovery`, `Dialer`, `connect`, `Preflight` and endpoints are not in this crate, and no
+  protocol's own frame is (no `coqui-peer` or `coqui-web-channel` name appears here).

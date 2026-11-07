@@ -7,10 +7,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use coqui_transport::asynch::{AsyncChannel, AsyncConnector, AsyncListener, StreamChannel};
-use coqui_transport::frame::{Codec, PeerFrame, WebTransportFrame};
+use coqui_transport::frame::{Codec, LengthPrefix};
 use coqui_transport::{Carrier, Duplex, Failure, tcp};
-use serde_json::Value;
-use support::{WAIT, body, cases, chunks, flag, hex, max, messages, name, vectors};
+use support::{WAIT, decode_cases, encode_cases, presets};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
 
 const SHORT: Option<Duration> = Some(Duration::from_millis(50));
@@ -24,12 +23,12 @@ fn channels<C: Codec + Clone>(codec: C) -> (StreamChannel, StreamChannel) {
 }
 
 fn frame(message: &[u8]) -> Vec<u8> {
-    PeerFrame.encode(message, usize::MAX).unwrap()
+    LengthPrefix::u32_be().encode(message, usize::MAX).unwrap()
 }
 
 #[tokio::test]
 async fn messages_cross_in_order_both_ways() {
-    let (one, other) = channels(WebTransportFrame);
+    let (one, other) = channels(LengthPrefix::u32_le());
     for at in 0..50_u32 {
         one.send(&at.to_be_bytes()).await.unwrap();
         other.send(&(at + 1000).to_be_bytes()).await.unwrap();
@@ -48,7 +47,7 @@ async fn messages_cross_in_order_both_ways() {
 
 #[tokio::test]
 async fn a_boxed_channel_is_an_async_channel() {
-    let (one, other) = channels(PeerFrame);
+    let (one, other) = channels(LengthPrefix::u32_be());
     let one: Box<dyn AsyncChannel> = Box::new(one);
     let other: Arc<dyn AsyncChannel> = Arc::new(other);
     one.send(b"").await.unwrap();
@@ -67,7 +66,7 @@ async fn tcp_carries_a_channel_whose_handles_are_send_across_awaits() {
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
         let stream = AsyncListener::accept(&listener).await.unwrap();
-        let channel = StreamChannel::new(stream, PeerFrame);
+        let channel = StreamChannel::new(stream, LengthPrefix::u32_be());
         while let Ok(Some(message)) = channel.receive(WAIT).await {
             channel.send(&message.repeat(3)).await.unwrap();
         }
@@ -80,7 +79,7 @@ async fn tcp_carries_a_channel_whose_handles_are_send_across_awaits() {
                 .await
                 .unwrap();
         assert!(stream.nodelay().unwrap());
-        let channel = StreamChannel::new(stream, PeerFrame);
+        let channel = StreamChannel::new(stream, LengthPrefix::u32_be());
         for message in [&b"ab"[..], &[5; 100_000][..]] {
             channel.send(message).await.unwrap();
             assert_eq!(
@@ -107,61 +106,64 @@ async fn an_async_connector_refuses_a_zero_timeout_and_no_address() {
         .unwrap();
 }
 
-async fn vectors_hold<C: Codec + Clone>(codec: C, vectors: &Value) {
-    for case in cases(vectors, "encode") {
-        let (mine, mut theirs) = duplex(1 << 16);
-        let channel = StreamChannel::builder(codec.clone())
-            .max_message(max(case))
-            .build(mine);
-        let sent = channel.send(&body(case)).await;
-        channel.close().await;
-        let mut wire = Vec::new();
-        theirs.read_to_end(&mut wire).await.unwrap();
-        if flag(case, "error") {
-            assert_eq!(sent, Err(Failure::Protocol), "{}", name(case));
-            assert!(wire.is_empty(), "{}", name(case));
-        } else {
-            assert_eq!(hex(&wire), case["hex"].as_str().unwrap(), "{}", name(case));
-        }
-    }
-    for case in cases(vectors, "decode") {
-        let (mine, mut theirs) = duplex(1 << 16);
-        let channel = StreamChannel::builder(codec.clone())
-            .max_message(max(case))
-            .build(mine);
-        for chunk in chunks(case) {
-            theirs.write_all(&chunk).await.unwrap();
-        }
-        theirs.shutdown().await.unwrap();
-        let mut got = Vec::new();
-        let end = loop {
-            match channel.receive(WAIT).await {
-                Ok(Some(message)) => got.push(message),
-                other => break other,
-            }
-        };
-        assert_eq!(got, messages(case), "{}", name(case));
-        let expected = if flag(case, "error") {
-            Err(Failure::Protocol)
-        } else if flag(case, "truncated") {
-            Err(Failure::PathLost)
-        } else {
-            Ok(None)
-        };
-        assert_eq!(end, expected, "{}", name(case));
-    }
-}
-
 #[tokio::test]
-async fn the_vectors_hold_through_the_async_channel() {
-    vectors_hold(PeerFrame, &vectors("peer_frame.json")).await;
-    vectors_hold(WebTransportFrame, &vectors("webtransport_frame.json")).await;
+async fn every_length_prefix_case_holds_through_the_async_channel() {
+    for preset in presets() {
+        for case in encode_cases(&preset) {
+            let label = format!("{}: {}", preset.name, case.name);
+            let (mine, mut theirs) = duplex(1 << 17);
+            let channel = StreamChannel::builder(preset.codec)
+                .max_message(case.max)
+                .build(mine);
+            let sent = channel.send(&case.body).await;
+            channel.close().await;
+            let mut wire = Vec::new();
+            theirs.read_to_end(&mut wire).await.unwrap();
+            match case.wire {
+                Some(expected) => {
+                    assert_eq!(sent, Ok(()), "{label}");
+                    assert_eq!(wire, expected, "{label}");
+                }
+                None => {
+                    assert_eq!(sent, Err(Failure::Protocol), "{label}");
+                    assert!(wire.is_empty(), "{label}");
+                }
+            }
+        }
+        for case in decode_cases(&preset) {
+            let label = format!("{}: {}", preset.name, case.name);
+            let (mine, mut theirs) = duplex(1 << 17);
+            let channel = StreamChannel::builder(preset.codec)
+                .max_message(case.max)
+                .build(mine);
+            for chunk in &case.chunks {
+                theirs.write_all(chunk).await.unwrap();
+            }
+            theirs.shutdown().await.unwrap();
+            let mut got = Vec::new();
+            let end = loop {
+                match channel.receive(WAIT).await {
+                    Ok(Some(message)) => got.push(message),
+                    other => break other,
+                }
+            };
+            assert_eq!(got, case.messages, "{label}");
+            let expected = if case.error {
+                Err(Failure::Protocol)
+            } else if case.truncated {
+                Err(Failure::PathLost)
+            } else {
+                Ok(None)
+            };
+            assert_eq!(end, expected, "{label}");
+        }
+    }
 }
 
 #[tokio::test]
 async fn a_receive_that_times_out_or_is_dropped_loses_nothing() {
     let (mine, mut theirs) = duplex(4096);
-    let channel = StreamChannel::new(mine, PeerFrame);
+    let channel = StreamChannel::new(mine, LengthPrefix::u32_be());
     let bytes = frame(b"hello");
     theirs.write_all(&bytes[..2]).await.unwrap();
     assert_eq!(channel.receive(SHORT).await, Err(Failure::Timeout));
@@ -181,7 +183,7 @@ async fn a_receive_that_times_out_or_is_dropped_loses_nothing() {
 #[tokio::test]
 async fn a_send_dropped_after_its_first_byte_still_sends_its_frame_whole() {
     let (mine, mut theirs) = duplex(8);
-    let channel = StreamChannel::new(mine, PeerFrame);
+    let channel = StreamChannel::new(mine, LengthPrefix::u32_be());
     let first = vec![1; 100];
     // The peer reads nothing yet, so the send stops after 8 bytes and is dropped there.
     let outcome = tokio::time::timeout(Duration::from_millis(50), channel.send(&first)).await;
@@ -200,7 +202,7 @@ async fn a_send_dropped_after_its_first_byte_still_sends_its_frame_whole() {
 #[tokio::test]
 async fn a_send_dropped_before_its_first_byte_sends_nothing() {
     let (mine, mut theirs) = duplex(64);
-    let channel = StreamChannel::new(mine, PeerFrame);
+    let channel = StreamChannel::new(mine, LengthPrefix::u32_be());
     // 64 bytes fill the pipe, so the next send waits for its first write and is dropped there.
     channel.send(&[1; 60]).await.unwrap();
     let dropped =
@@ -221,7 +223,7 @@ async fn a_send_dropped_before_its_first_byte_sends_nothing() {
 #[tokio::test]
 async fn a_send_that_never_got_its_turn_sent_nothing() {
     let (mine, mut theirs) = duplex(8);
-    let channel = Arc::new(StreamChannel::new(mine, PeerFrame));
+    let channel = Arc::new(StreamChannel::new(mine, LengthPrefix::u32_be()));
     let holding = {
         let channel = Arc::clone(&channel);
         tokio::spawn(async move { channel.send(&[1; 100]).await })
@@ -244,7 +246,7 @@ async fn a_send_that_never_got_its_turn_sent_nothing() {
 #[tokio::test]
 async fn a_header_above_the_bound_ends_the_channel_both_ways() {
     let (mine, mut theirs) = duplex(4096);
-    let channel = StreamChannel::builder(PeerFrame)
+    let channel = StreamChannel::builder(LengthPrefix::u32_be())
         .max_message(10)
         .build(mine);
     theirs.write_all(&frame(b"ok")).await.unwrap();
@@ -259,14 +261,14 @@ async fn a_header_above_the_bound_ends_the_channel_both_ways() {
 #[tokio::test]
 async fn the_stream_ending_inside_a_frame_is_lost_and_between_frames_is_orderly() {
     let (mine, mut theirs) = duplex(4096);
-    let channel = StreamChannel::new(mine, PeerFrame);
+    let channel = StreamChannel::new(mine, LengthPrefix::u32_be());
     theirs.write_all(&frame(b"hello")[..7]).await.unwrap();
     drop(theirs);
     assert_eq!(channel.receive(WAIT).await, Err(Failure::PathLost));
     assert_eq!(channel.receive(WAIT).await, Err(Failure::PathLost));
 
     let (mine, mut theirs) = duplex(4096);
-    let channel = StreamChannel::new(mine, PeerFrame);
+    let channel = StreamChannel::new(mine, LengthPrefix::u32_be());
     theirs.write_all(&frame(b"last")).await.unwrap();
     drop(theirs);
     assert_eq!(channel.receive(WAIT).await.unwrap(), Some(b"last".to_vec()));
@@ -278,7 +280,7 @@ async fn the_stream_ending_inside_a_frame_is_lost_and_between_frames_is_orderly(
 #[tokio::test]
 async fn a_peer_that_takes_nothing_for_the_send_limit_ends_the_channel() {
     let (mine, _theirs) = duplex(8);
-    let channel = StreamChannel::builder(PeerFrame)
+    let channel = StreamChannel::builder(LengthPrefix::u32_be())
         .send_limit(Duration::from_millis(100))
         .build(mine);
     assert_eq!(channel.send(&[0; 64]).await, Err(Failure::NoProgress));
@@ -289,7 +291,7 @@ async fn a_peer_that_takes_nothing_for_the_send_limit_ends_the_channel() {
 
 #[tokio::test]
 async fn closing_wakes_a_waiting_receive_ends_the_peers_stream_and_can_be_repeated() {
-    let (one, other) = channels(PeerFrame);
+    let (one, other) = channels(LengthPrefix::u32_be());
     let one = Arc::new(one);
     let waiting = {
         let one = Arc::clone(&one);
@@ -308,7 +310,7 @@ async fn closing_wakes_a_waiting_receive_ends_the_peers_stream_and_can_be_repeat
 
 #[tokio::test]
 async fn sends_and_receives_run_at_once_from_many_tasks() {
-    let (one, other) = channels(PeerFrame);
+    let (one, other) = channels(LengthPrefix::u32_be());
     let one = Arc::new(one);
     let other = Arc::new(other);
     let mut senders = Vec::new();
@@ -352,8 +354,10 @@ async fn sends_and_receives_run_at_once_from_many_tasks() {
 #[tokio::test]
 async fn a_staged_bound_takes_effect_by_position_and_limits_are_reported() {
     let (one, other) = duplex(4096);
-    let one = StreamChannel::builder(PeerFrame).max_message(10).build(one);
-    let other = StreamChannel::new(other, PeerFrame);
+    let one = StreamChannel::builder(LengthPrefix::u32_be())
+        .max_message(10)
+        .build(one);
+    let other = StreamChannel::new(other, LengthPrefix::u32_be());
     one.set_max_receive_after(1, 100).unwrap();
     other.send(&[1; 10]).await.unwrap();
     other.send(&[2; 50]).await.unwrap();
@@ -375,8 +379,8 @@ async fn a_staged_bound_takes_effect_by_position_and_limits_are_reported() {
 async fn a_duplex_of_two_async_halves_is_one_stream() {
     let (to_child, from_parent) = duplex(64);
     let (to_parent, from_child) = duplex(64);
-    let mine = StreamChannel::new(Duplex::new(from_child, to_child), PeerFrame);
-    let theirs = StreamChannel::new(Duplex::new(from_parent, to_parent), PeerFrame);
+    let mine = StreamChannel::new(Duplex::new(from_child, to_child), LengthPrefix::u32_be());
+    let theirs = StreamChannel::new(Duplex::new(from_parent, to_parent), LengthPrefix::u32_be());
     mine.send(b"over two pipes").await.unwrap();
     assert_eq!(
         theirs.receive(WAIT).await.unwrap(),
@@ -391,8 +395,12 @@ async fn a_duplex_of_two_async_halves_is_one_stream() {
 
 #[test]
 fn only_settings_above_their_defaults_are_listed_as_weaker() {
-    assert!(StreamChannel::builder(PeerFrame).weakened().is_empty());
-    let looser = StreamChannel::builder(PeerFrame)
+    assert!(
+        StreamChannel::builder(LengthPrefix::u32_be())
+            .weakened()
+            .is_empty()
+    );
+    let looser = StreamChannel::builder(LengthPrefix::u32_be())
         .max_message(StreamChannel::DEFAULT_MAX_MESSAGE + 1)
         .send_limit(StreamChannel::DEFAULT_SEND_LIMIT + Duration::from_secs(1))
         .read_buffer(StreamChannel::DEFAULT_READ_BUFFER + 1);

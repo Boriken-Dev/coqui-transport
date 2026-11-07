@@ -73,68 +73,49 @@ pub coqui_transport::frame::FrameError::Tag
 impl core::error::Error for coqui_transport::frame::FrameError
 impl core::fmt::Display for coqui_transport::frame::FrameError
 pub fn coqui_transport::frame::FrameError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct coqui_transport::frame::PeerDecoder(_)
-impl coqui_transport::frame::PeerDecoder
-pub fn coqui_transport::frame::PeerDecoder::buffered(&self) -> usize
-pub const fn coqui_transport::frame::PeerDecoder::new(usize) -> Self
-pub fn coqui_transport::frame::PeerDecoder::next_frame(&mut self) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::frame::FrameError>
-pub fn coqui_transport::frame::PeerDecoder::push(&mut self, &[u8])
-pub const fn coqui_transport::frame::PeerDecoder::set_maximum(&mut self, usize)
-impl coqui_transport::frame::Decode for coqui_transport::frame::PeerDecoder
-pub fn coqui_transport::frame::PeerDecoder::buffered(&self) -> usize
-pub fn coqui_transport::frame::PeerDecoder::next_frame(&mut self) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::frame::FrameError>
-pub fn coqui_transport::frame::PeerDecoder::push(&mut self, &[u8])
-pub fn coqui_transport::frame::PeerDecoder::set_maximum(&mut self, usize)
-pub struct coqui_transport::frame::PeerFrame
-impl coqui_transport::frame::Codec for coqui_transport::frame::PeerFrame
-pub type coqui_transport::frame::PeerFrame::Decoder = coqui_transport::frame::PeerDecoder
-pub fn coqui_transport::frame::PeerFrame::decoder(&self, usize) -> coqui_transport::frame::PeerDecoder
-pub fn coqui_transport::frame::PeerFrame::encode(&self, &[u8], usize) -> core::result::Result<alloc::vec::Vec<u8>, coqui_transport::frame::FrameError>
-pub struct coqui_transport::frame::WebTransportDecoder(_)
-impl coqui_transport::frame::WebTransportDecoder
-pub fn coqui_transport::frame::WebTransportDecoder::buffered(&self) -> usize
-pub const fn coqui_transport::frame::WebTransportDecoder::new(usize) -> Self
-pub fn coqui_transport::frame::WebTransportDecoder::next_frame(&mut self) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::frame::FrameError>
-pub fn coqui_transport::frame::WebTransportDecoder::push(&mut self, &[u8])
-pub const fn coqui_transport::frame::WebTransportDecoder::set_maximum(&mut self, usize)
-impl coqui_transport::frame::Decode for coqui_transport::frame::WebTransportDecoder
-pub fn coqui_transport::frame::WebTransportDecoder::buffered(&self) -> usize
-pub fn coqui_transport::frame::WebTransportDecoder::next_frame(&mut self) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::frame::FrameError>
-pub fn coqui_transport::frame::WebTransportDecoder::push(&mut self, &[u8])
-pub fn coqui_transport::frame::WebTransportDecoder::set_maximum(&mut self, usize)
-pub struct coqui_transport::frame::WebTransportFrame
-impl coqui_transport::frame::Codec for coqui_transport::frame::WebTransportFrame
-pub type coqui_transport::frame::WebTransportFrame::Decoder = coqui_transport::frame::WebTransportDecoder
-pub fn coqui_transport::frame::WebTransportFrame::decoder(&self, usize) -> coqui_transport::frame::WebTransportDecoder
-pub fn coqui_transport::frame::WebTransportFrame::encode(&self, &[u8], usize) -> core::result::Result<alloc::vec::Vec<u8>, coqui_transport::frame::FrameError>
+pub struct coqui_transport::frame::LengthDecoder
+impl coqui_transport::frame::LengthDecoder
+pub const fn coqui_transport::frame::LengthDecoder::new(coqui_transport::frame::LengthPrefix, usize) -> Self
+impl coqui_transport::frame::Decode for coqui_transport::frame::LengthDecoder
+pub fn coqui_transport::frame::LengthDecoder::buffered(&self) -> usize
+pub fn coqui_transport::frame::LengthDecoder::next_frame(&mut self) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::frame::FrameError>
+pub fn coqui_transport::frame::LengthDecoder::push(&mut self, &[u8])
+pub fn coqui_transport::frame::LengthDecoder::set_maximum(&mut self, usize)
+pub struct coqui_transport::frame::LengthPrefix
+impl coqui_transport::frame::LengthPrefix
+pub const fn coqui_transport::frame::LengthPrefix::allow_empty(self) -> Self
+pub const fn coqui_transport::frame::LengthPrefix::empty_allowed(&self) -> bool
+pub const fn coqui_transport::frame::LengthPrefix::is_big_endian(&self) -> bool
+pub const fn coqui_transport::frame::LengthPrefix::refuse_empty(self) -> Self
+pub const fn coqui_transport::frame::LengthPrefix::u16_be() -> Self
+pub const fn coqui_transport::frame::LengthPrefix::u16_le() -> Self
+pub const fn coqui_transport::frame::LengthPrefix::u32_be() -> Self
+pub const fn coqui_transport::frame::LengthPrefix::u32_le() -> Self
+pub const fn coqui_transport::frame::LengthPrefix::u8() -> Self
+pub const fn coqui_transport::frame::LengthPrefix::width(&self) -> usize
+impl coqui_transport::frame::Codec for coqui_transport::frame::LengthPrefix
+pub type coqui_transport::frame::LengthPrefix::Decoder = coqui_transport::frame::LengthDecoder
+pub fn coqui_transport::frame::LengthPrefix::decoder(&self, usize) -> coqui_transport::frame::LengthDecoder
+pub fn coqui_transport::frame::LengthPrefix::encode(&self, &[u8], usize) -> core::result::Result<alloc::vec::Vec<u8>, coqui_transport::frame::FrameError>
 pub const coqui_transport::frame::DEFAULT_MAX_MESSAGE: usize
 pub trait coqui_transport::frame::Codec: core::marker::Send + core::marker::Sync + 'static
 pub type coqui_transport::frame::Codec::Decoder: coqui_transport::frame::Decode + core::marker::Send + 'static
 pub fn coqui_transport::frame::Codec::decoder(&self, usize) -> Self::Decoder
 pub fn coqui_transport::frame::Codec::encode(&self, &[u8], usize) -> core::result::Result<alloc::vec::Vec<u8>, coqui_transport::frame::FrameError>
-impl coqui_transport::frame::Codec for coqui_transport::frame::PeerFrame
-pub type coqui_transport::frame::PeerFrame::Decoder = coqui_transport::frame::PeerDecoder
-pub fn coqui_transport::frame::PeerFrame::decoder(&self, usize) -> coqui_transport::frame::PeerDecoder
-pub fn coqui_transport::frame::PeerFrame::encode(&self, &[u8], usize) -> core::result::Result<alloc::vec::Vec<u8>, coqui_transport::frame::FrameError>
-impl coqui_transport::frame::Codec for coqui_transport::frame::WebTransportFrame
-pub type coqui_transport::frame::WebTransportFrame::Decoder = coqui_transport::frame::WebTransportDecoder
-pub fn coqui_transport::frame::WebTransportFrame::decoder(&self, usize) -> coqui_transport::frame::WebTransportDecoder
-pub fn coqui_transport::frame::WebTransportFrame::encode(&self, &[u8], usize) -> core::result::Result<alloc::vec::Vec<u8>, coqui_transport::frame::FrameError>
+impl coqui_transport::frame::Codec for coqui_transport::frame::LengthPrefix
+pub type coqui_transport::frame::LengthPrefix::Decoder = coqui_transport::frame::LengthDecoder
+pub fn coqui_transport::frame::LengthPrefix::decoder(&self, usize) -> coqui_transport::frame::LengthDecoder
+pub fn coqui_transport::frame::LengthPrefix::encode(&self, &[u8], usize) -> core::result::Result<alloc::vec::Vec<u8>, coqui_transport::frame::FrameError>
 pub trait coqui_transport::frame::Decode
 pub fn coqui_transport::frame::Decode::buffered(&self) -> usize
 pub fn coqui_transport::frame::Decode::next_frame(&mut self) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::frame::FrameError>
 pub fn coqui_transport::frame::Decode::push(&mut self, &[u8])
 pub fn coqui_transport::frame::Decode::set_maximum(&mut self, usize)
-impl coqui_transport::frame::Decode for coqui_transport::frame::PeerDecoder
-pub fn coqui_transport::frame::PeerDecoder::buffered(&self) -> usize
-pub fn coqui_transport::frame::PeerDecoder::next_frame(&mut self) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::frame::FrameError>
-pub fn coqui_transport::frame::PeerDecoder::push(&mut self, &[u8])
-pub fn coqui_transport::frame::PeerDecoder::set_maximum(&mut self, usize)
-impl coqui_transport::frame::Decode for coqui_transport::frame::WebTransportDecoder
-pub fn coqui_transport::frame::WebTransportDecoder::buffered(&self) -> usize
-pub fn coqui_transport::frame::WebTransportDecoder::next_frame(&mut self) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::frame::FrameError>
-pub fn coqui_transport::frame::WebTransportDecoder::push(&mut self, &[u8])
-pub fn coqui_transport::frame::WebTransportDecoder::set_maximum(&mut self, usize)
+impl coqui_transport::frame::Decode for coqui_transport::frame::LengthDecoder
+pub fn coqui_transport::frame::LengthDecoder::buffered(&self) -> usize
+pub fn coqui_transport::frame::LengthDecoder::next_frame(&mut self) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::frame::FrameError>
+pub fn coqui_transport::frame::LengthDecoder::push(&mut self, &[u8])
+pub fn coqui_transport::frame::LengthDecoder::set_maximum(&mut self, usize)
 pub mod coqui_transport::memory
 pub struct coqui_transport::memory::ReadHalf(_)
 impl alloc::io::read::Read for coqui_transport::memory::ReadHalf

@@ -7,7 +7,7 @@ use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use coqui_transport::frame::{Codec, PeerFrame, WebTransportFrame};
+use coqui_transport::frame::{Codec, LengthPrefix};
 use coqui_transport::{Channel, Connector, Failure, Listener, Split, StreamChannel, tcp};
 use support::WAIT;
 
@@ -27,14 +27,14 @@ fn a_connector_and_a_listener_carry_a_channel_both_ways() {
     let address = listener.local_addr().unwrap();
     let server = thread::spawn(move || {
         let stream = Listener::accept(&listener).unwrap();
-        let channel = StreamChannel::start(stream, WebTransportFrame).unwrap();
+        let channel = StreamChannel::start(stream, LengthPrefix::u32_le()).unwrap();
         while let Ok(Some(message)) = channel.receive(WAIT) {
             channel.send(&message.repeat(2)).unwrap();
         }
     });
     let stream =
         Connector::connect(&tcp::Connector::new([address]), Duration::from_secs(5)).unwrap();
-    let channel = StreamChannel::start(stream, WebTransportFrame).unwrap();
+    let channel = StreamChannel::start(stream, LengthPrefix::u32_le()).unwrap();
     for message in [&b"ab"[..], &[7; 100_000][..]] {
         channel.send(message).unwrap();
         assert_eq!(channel.receive(WAIT).unwrap(), Some(message.repeat(2)));
@@ -47,9 +47,10 @@ fn a_connector_and_a_listener_carry_a_channel_both_ways() {
 fn closing_a_channel_ends_the_stream_for_the_peer_after_what_was_sent() {
     let listener = TcpListener::bind(loopback()).unwrap();
     let address = listener.local_addr().unwrap();
-    let client = StreamChannel::start(TcpStream::connect(address).unwrap(), PeerFrame).unwrap();
+    let client =
+        StreamChannel::start(TcpStream::connect(address).unwrap(), LengthPrefix::u32_be()).unwrap();
     let (stream, _) = listener.accept().unwrap();
-    let server = StreamChannel::start(stream, PeerFrame).unwrap();
+    let server = StreamChannel::start(stream, LengthPrefix::u32_be()).unwrap();
     for at in 0..50_u8 {
         client.send(&[at; 1000]).unwrap();
     }
@@ -64,7 +65,7 @@ fn closing_a_channel_ends_the_stream_for_the_peer_after_what_was_sent() {
 fn closing_while_the_peer_still_sends_loses_nothing_this_side_sent() {
     let listener = TcpListener::bind(loopback()).unwrap();
     let address = listener.local_addr().unwrap();
-    let client = StreamChannel::builder(PeerFrame)
+    let client = StreamChannel::builder(LengthPrefix::u32_be())
         .pending(1)
         .start(TcpStream::connect(address).unwrap())
         .unwrap();
@@ -73,7 +74,9 @@ fn closing_while_the_peer_still_sends_loses_nothing_this_side_sent() {
     let flooding = {
         let mut server = server.try_clone().unwrap();
         thread::spawn(move || {
-            let frame = PeerFrame.encode(&[1; 1000], usize::MAX).unwrap();
+            let frame = LengthPrefix::u32_be()
+                .encode(&[1; 1000], usize::MAX)
+                .unwrap();
             for _ in 0..2000 {
                 if io::Write::write_all(&mut server, &frame).is_err() {
                     return;
@@ -92,7 +95,10 @@ fn closing_while_the_peer_still_sends_loses_nothing_this_side_sent() {
         "the peer's read ended with {read:?} after {} bytes",
         wire.len()
     );
-    assert_eq!(wire, PeerFrame.encode(&sent, usize::MAX).unwrap());
+    assert_eq!(
+        wire,
+        LengthPrefix::u32_be().encode(&sent, usize::MAX).unwrap()
+    );
     flooding.join().unwrap();
 }
 
@@ -100,7 +106,8 @@ fn closing_while_the_peer_still_sends_loses_nothing_this_side_sent() {
 fn closing_wakes_the_reader_blocked_on_the_socket() {
     let listener = TcpListener::bind(loopback()).unwrap();
     let address = listener.local_addr().unwrap();
-    let client = StreamChannel::start(TcpStream::connect(address).unwrap(), PeerFrame).unwrap();
+    let client =
+        StreamChannel::start(TcpStream::connect(address).unwrap(), LengthPrefix::u32_be()).unwrap();
     // The peer is open and silent, so the reader thread waits in a read.
     let (_server, _) = listener.accept().unwrap();
     thread::sleep(Duration::from_millis(50));
@@ -178,7 +185,8 @@ fn a_connector_refuses_no_address_and_a_zero_timeout_and_reports_a_refusal() {
 fn a_reset_connection_is_a_lost_path_for_the_channel() {
     let listener = TcpListener::bind(loopback()).unwrap();
     let address = listener.local_addr().unwrap();
-    let client = StreamChannel::start(TcpStream::connect(address).unwrap(), PeerFrame).unwrap();
+    let client =
+        StreamChannel::start(TcpStream::connect(address).unwrap(), LengthPrefix::u32_be()).unwrap();
     let (server, _) = listener.accept().unwrap();
     // Half a frame, then the connection ends.
     io::Write::write_all(&mut &server, &[0, 0, 0, 9, 1, 2]).unwrap();

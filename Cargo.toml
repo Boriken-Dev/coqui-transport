@@ -30,8 +30,6 @@ tokio = ["dep:tokio"]
 tokio = { version = "1", default-features = false, features = ["io-util", "net", "sync", "time"], optional = true }
 
 [dev-dependencies]
-# The shared wire vectors are JSON.
-serde_json = "1"
 # Arbitrary bytes and chunkings for the decoders.
 proptest = { version = "1", default-features = false, features = ["std"] }
 # A runtime for the async tests and examples.

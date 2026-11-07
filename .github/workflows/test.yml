@@ -91,14 +91,3 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --target wasm32-unknown-unknown
-
-  # The vectors still are what the crates that defined the wires produce.
-  vectors:
-    name: Legacy wire vectors
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref || github.ref }}
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo run --manifest-path tools/legacy-vectors/Cargo.toml -- vectors --check

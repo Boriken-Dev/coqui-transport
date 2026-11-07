@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use coqui_transport::frame::WebTransportFrame;
+use coqui_transport::frame::LengthPrefix;
 use coqui_transport::{Channel, Halves, Split, StreamChannel, memory};
 
 /// Counts the bytes that pass through `inner`.
@@ -58,11 +58,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(interrupt) = halves.interrupt {
         counted = counted.with_interrupt(interrupt);
     }
-    let channel = StreamChannel::start(counted, WebTransportFrame)?;
+    let channel = StreamChannel::start(counted, LengthPrefix::u32_le())?;
 
     // The other end echoes.
     let echo = std::thread::spawn(move || -> io::Result<()> {
-        let peer = StreamChannel::start(theirs, WebTransportFrame)?;
+        let peer = StreamChannel::start(theirs, LengthPrefix::u32_le())?;
         while let Ok(Some(message)) = peer.receive(None) {
             if peer.send(&message).is_err() {
                 break;
