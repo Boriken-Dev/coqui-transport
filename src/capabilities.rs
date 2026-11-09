@@ -54,14 +54,14 @@ impl Capabilities {
 
     /// Sets what carries the messages.
     #[must_use]
-    pub const fn with_carrier(mut self, carrier: Carrier) -> Self {
+    pub const fn carrier(mut self, carrier: Carrier) -> Self {
         self.carrier = carrier;
         self
     }
 
     /// Sets the largest message sent and the largest accepted.
     #[must_use]
-    pub const fn with_limits(mut self, max_send: usize, max_receive: usize) -> Self {
+    pub const fn limits(mut self, max_send: usize, max_receive: usize) -> Self {
         self.max_send = Some(max_send);
         self.max_receive = Some(max_receive);
         self
@@ -69,7 +69,7 @@ impl Capabilities {
 
     /// Sets how datagrams travel and the largest that fits, or no datagrams for `None`.
     #[must_use]
-    pub const fn with_datagrams(mut self, datagrams: Option<(Delivery, Option<usize>)>) -> Self {
+    pub const fn datagrams(mut self, datagrams: Option<(Delivery, Option<usize>)>) -> Self {
         match datagrams {
             Some((delivery, max_size)) => {
                 self.datagrams = Some(delivery);

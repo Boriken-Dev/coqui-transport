@@ -107,7 +107,7 @@ pub trait Channel: Send + Sync {
     ///
     /// The default reports only what [`datagrams`](Self::datagrams) says, and an unknown carrier and limits.
     fn capabilities(&self) -> Capabilities {
-        Capabilities::new().with_datagrams(
+        Capabilities::new().datagrams(
             self.datagrams()
                 .map(|datagrams| (datagrams.delivery(), datagrams.max_size())),
         )
@@ -253,7 +253,7 @@ mod tests {
             true
         }
         fn capabilities(&self) -> Capabilities {
-            Capabilities::new().with_carrier(Carrier::Messages)
+            Capabilities::new().carrier(Carrier::Messages)
         }
     }
 

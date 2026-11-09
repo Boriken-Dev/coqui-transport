@@ -177,7 +177,7 @@ impl Split for Stream {
         let incoming = Arc::clone(&self.reader.0);
         let outgoing = Arc::clone(&self.writer.0);
         Ok(
-            Halves::new(self.reader, self.writer).with_interrupt(Interrupt::new(move || {
+            Halves::new(self.reader, self.writer).interrupt(Interrupt::new(move || {
                 incoming.interrupt();
                 outgoing.end_writing();
             })),

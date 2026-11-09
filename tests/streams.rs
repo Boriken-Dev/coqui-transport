@@ -38,7 +38,7 @@ fn halves_split_as_they_are_and_keep_their_interrupt() {
     let calls = Arc::new(AtomicUsize::new(0));
     let counting = Arc::clone(&calls);
     let halves = Halves::new(Cursor::new(Vec::new()), Vec::<u8>::new())
-        .with_interrupt(Interrupt::new(move || {
+        .interrupt(Interrupt::new(move || {
             counting.fetch_add(1, Ordering::SeqCst);
         }))
         .split()

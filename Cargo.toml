@@ -25,11 +25,17 @@ default = []
 tokio = ["dep:tokio"]
 
 [dependencies]
+# The settings types' value form and schema; alpha, by revision, as the family pins it.
+guatiao = { git = "https://github.com/Boriken-Dev/guatiao", rev = "03e1cac8be06715a8037f45f1610c5894eea0b5b", default-features = false, features = ["derive"] }
+# The text rendering of a non-default value.
+guatiao-serde = { git = "https://github.com/Boriken-Dev/guatiao", rev = "03e1cac8be06715a8037f45f1610c5894eea0b5b", default-features = false, features = ["json"] }
 # Async I/O, behind `tokio`: `io-util` for split halves and read/write calls, `net` for TCP, `sync` for the locks a
 # channel's two directions take, `time` for timeouts. No runtime: the caller's runs it.
 tokio = { version = "1", default-features = false, features = ["io-util", "net", "sync", "time"], optional = true }
 
 [dev-dependencies]
+# The settings types' text forms in tests.
+guatiao-serde = { git = "https://github.com/Boriken-Dev/guatiao", rev = "03e1cac8be06715a8037f45f1610c5894eea0b5b", default-features = false, features = ["json", "toml"] }
 # Arbitrary bytes and chunkings for the decoders.
 proptest = { version = "1", default-features = false, features = ["std"] }
 # A runtime for the async tests and examples.

@@ -3,8 +3,6 @@
 mod shared;
 
 use alloc::boxed::Box;
-use alloc::format;
-use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt;
@@ -95,16 +93,11 @@ impl StreamChannel {
     /// The default time closing waits, after the peer last sent anything, for its end: 500 ms.
     pub const DEFAULT_LINGER: Duration = Duration::from_millis(500);
 
-    /// Settings for a channel framed by `codec`, at their defaults.
+    /// A builder for a channel framed by `codec`, with every setting at its default.
     pub const fn builder<C: Codec>(codec: C) -> StreamChannelBuilder<C> {
         StreamChannelBuilder {
             codec,
-            max_message: Self::DEFAULT_MAX_MESSAGE,
-            pending: Self::DEFAULT_PENDING,
-            queued_bytes: Self::DEFAULT_QUEUED_BYTES,
-            send_limit: Self::DEFAULT_SEND_LIMIT,
-            read_buffer: Self::DEFAULT_READ_BUFFER,
-            linger: Self::DEFAULT_LINGER,
+            settings: StreamChannelSettings::new(),
         }
     }
 
@@ -166,119 +159,139 @@ impl fmt::Debug for StreamChannel {
     }
 }
 
-/// The settings of a [`StreamChannel`], from [`StreamChannel::builder`].
+/// What a [`StreamChannelBuilder`] takes whole through `settings`, in the form a file, a form or a
+/// peer fills.
 ///
 /// Every limit is a setting with a finite default; none has a floor beyond what makes it mean
-/// anything (a read-ahead of 0 and a read buffer of 0 are 1).
-/// [`non_defaults`](Self::non_defaults) lists those set looser than their defaults.
+/// anything (a read-ahead of 0 and a read buffer of 0 are 1). Every key is optional (an absent one is
+/// its default) and an unknown key is refused; a duration is a number of seconds, `[secs, nanos]` or
+/// `{secs, nanos}`. The type is a guatiao value (`from_value`, `to_value`, `schema`), and
+/// `guatiao_serde::text` reads and writes its text. It is `#[non_exhaustive]`: start from
+/// [`Default`] and assign the fields.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, guatiao::ToValue, guatiao::FromValue, guatiao::Schema,
+)]
+#[map(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct StreamChannelSettings {
+    /// The largest message, both ways, until a `set_max_` call changes it. Default
+    /// [`StreamChannel::DEFAULT_MAX_MESSAGE`].
+    #[map(default = StreamChannelSettings::new().max_message)]
+    pub max_message: usize,
+    /// How many messages the reader thread holds ahead of `receive` before it stops reading, until
+    /// [`Channel::set_pending`] changes it. 0 is 1. Default [`StreamChannel::DEFAULT_PENDING`].
+    #[map(default = StreamChannelSettings::new().pending)]
+    pub pending: usize,
+    /// The most bytes queued to send, each message counting its frame and 64 bytes more; a message
+    /// that does not fit waits or is refused, as [`Channel::send`] and [`Channel::send_timeout`]
+    /// say. Default [`StreamChannel::DEFAULT_QUEUED_BYTES`].
+    #[map(default = StreamChannelSettings::new().queued_bytes)]
+    pub queued_bytes: usize,
+    /// How long a frame being written may go with the stream taking none of it, after which the
+    /// channel ends with [`Failure::NoProgress`]; also the most `close` waits for what is queued.
+    /// Default [`StreamChannel::DEFAULT_SEND_LIMIT`].
+    #[map(default = StreamChannelSettings::new().send_limit)]
+    pub send_limit: Duration,
+    /// The most bytes one read takes from the stream, which is also how far past one message the
+    /// decoder can hold. 0 is 1. Default [`StreamChannel::DEFAULT_READ_BUFFER`].
+    #[map(default = StreamChannelSettings::new().read_buffer)]
+    pub read_buffer: usize,
+    /// How long `close`, once it has written what was queued, waits after the peer last sent
+    /// anything for the peer's end, reading and discarding what still arrives, before it ends the
+    /// stream; never longer than the send limit in all. A socket ended with bytes unread is reset,
+    /// and the peer then loses what this side sent last. Default [`StreamChannel::DEFAULT_LINGER`].
+    #[map(default = StreamChannelSettings::new().linger)]
+    pub linger: Duration,
+}
+
+impl StreamChannelSettings {
+    /// Every setting at its default.
+    pub const fn new() -> Self {
+        Self {
+            max_message: StreamChannel::DEFAULT_MAX_MESSAGE,
+            pending: StreamChannel::DEFAULT_PENDING,
+            queued_bytes: StreamChannel::DEFAULT_QUEUED_BYTES,
+            send_limit: StreamChannel::DEFAULT_SEND_LIMIT,
+            read_buffer: StreamChannel::DEFAULT_READ_BUFFER,
+            linger: StreamChannel::DEFAULT_LINGER,
+        }
+    }
+
+    /// Every setting that differs from its default, named by key path.
+    #[must_use]
+    pub fn non_defaults(&self) -> Vec<NonDefault> {
+        NonDefault::of_settings(self)
+    }
+}
+
+impl Default for StreamChannelSettings {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Builds a [`StreamChannel`]: [`StreamChannel::builder`], the settings, then
+/// [`start`](Self::start).
+///
+/// [`non_defaults`](Self::non_defaults) lists the settings that differ from their defaults.
 #[derive(Clone, Debug)]
 #[must_use]
 pub struct StreamChannelBuilder<C> {
     codec: C,
-    max_message: usize,
-    pending: usize,
-    queued_bytes: usize,
-    send_limit: Duration,
-    read_buffer: usize,
-    linger: Duration,
+    settings: StreamChannelSettings,
 }
 
 impl<C: Codec> StreamChannelBuilder<C> {
-    /// The largest message, both ways, until a `set_max_` call changes it. Default
-    /// [`StreamChannel::DEFAULT_MAX_MESSAGE`].
+    /// The largest message, both ways; see [`StreamChannelSettings::max_message`].
     pub const fn max_message(mut self, bytes: usize) -> Self {
-        self.max_message = bytes;
+        self.settings.max_message = bytes;
         self
     }
 
-    /// How many messages the reader thread holds ahead of `receive` before it stops reading, until
-    /// [`Channel::set_pending`] changes it. 0 is 1. Default [`StreamChannel::DEFAULT_PENDING`].
+    /// How many messages the reader holds ahead of `receive`; see
+    /// [`StreamChannelSettings::pending`].
     pub const fn pending(mut self, messages: usize) -> Self {
-        self.pending = messages;
+        self.settings.pending = messages;
         self
     }
 
-    /// The most bytes queued to send, each message counting its frame and 64 bytes more; a message
-    /// that does not fit waits or is refused, as [`Channel::send`] and [`Channel::send_timeout`]
-    /// say. Default [`StreamChannel::DEFAULT_QUEUED_BYTES`].
+    /// The most bytes queued to send; see [`StreamChannelSettings::queued_bytes`].
     pub const fn queued_bytes(mut self, bytes: usize) -> Self {
-        self.queued_bytes = bytes;
+        self.settings.queued_bytes = bytes;
         self
     }
 
-    /// How long a frame being written may go with the stream taking none of it, after which the
-    /// channel ends with [`Failure::NoProgress`]; also the most `close` waits for what is queued.
-    /// Default [`StreamChannel::DEFAULT_SEND_LIMIT`].
+    /// How long a frame being written may go with the stream taking none of it; see
+    /// [`StreamChannelSettings::send_limit`].
     pub const fn send_limit(mut self, limit: Duration) -> Self {
-        self.send_limit = limit;
+        self.settings.send_limit = limit;
         self
     }
 
-    /// The most bytes one read takes from the stream, which is also how far past one message the
-    /// decoder can hold. 0 is 1. Default [`StreamChannel::DEFAULT_READ_BUFFER`].
+    /// The most bytes one read takes from the stream; see [`StreamChannelSettings::read_buffer`].
     pub const fn read_buffer(mut self, bytes: usize) -> Self {
-        self.read_buffer = bytes;
+        self.settings.read_buffer = bytes;
         self
     }
 
-    /// How long `close`, once it has written what was queued, waits after the peer last sent
-    /// anything for the peer's end, reading and discarding what still arrives, before it ends the
-    /// stream; never longer than the send limit in all. A socket ended with bytes unread is reset,
-    /// and the peer then loses what this side sent last. Default
-    /// [`StreamChannel::DEFAULT_LINGER`].
+    /// How long `close` waits for the peer's end; see [`StreamChannelSettings::linger`].
     pub const fn linger(mut self, quiet: Duration) -> Self {
-        self.linger = quiet;
+        self.settings.linger = quiet;
         self
     }
 
-    /// The settings looser than their defaults, with each value and its default: `max_message`,
-    /// `pending`, `queued_bytes`, `send_limit`, `read_buffer` and `linger` above theirs.
+    /// Every limit from `settings`. Replaces what the limit setters set before, and is replaced by
+    /// what they set after it. The codec is an argument, not a setting, and stays.
+    pub const fn settings(mut self, settings: StreamChannelSettings) -> Self {
+        self.settings = settings;
+        self
+    }
+
+    /// Every setting that differs from its default, with each value and its default, named by key
+    /// path.
     #[must_use]
     pub fn non_defaults(&self) -> Vec<NonDefault> {
-        let mut found = Vec::new();
-        if self.max_message > StreamChannel::DEFAULT_MAX_MESSAGE {
-            found.push(NonDefault::new(
-                "max_message",
-                self.max_message.to_string(),
-                StreamChannel::DEFAULT_MAX_MESSAGE.to_string(),
-            ));
-        }
-        if self.pending > StreamChannel::DEFAULT_PENDING {
-            found.push(NonDefault::new(
-                "pending",
-                self.pending.to_string(),
-                StreamChannel::DEFAULT_PENDING.to_string(),
-            ));
-        }
-        if self.queued_bytes > StreamChannel::DEFAULT_QUEUED_BYTES {
-            found.push(NonDefault::new(
-                "queued_bytes",
-                self.queued_bytes.to_string(),
-                StreamChannel::DEFAULT_QUEUED_BYTES.to_string(),
-            ));
-        }
-        if self.send_limit > StreamChannel::DEFAULT_SEND_LIMIT {
-            found.push(NonDefault::new(
-                "send_limit",
-                format!("{:?}", self.send_limit),
-                format!("{:?}", StreamChannel::DEFAULT_SEND_LIMIT),
-            ));
-        }
-        if self.read_buffer > StreamChannel::DEFAULT_READ_BUFFER {
-            found.push(NonDefault::new(
-                "read_buffer",
-                self.read_buffer.to_string(),
-                StreamChannel::DEFAULT_READ_BUFFER.to_string(),
-            ));
-        }
-        if self.linger > StreamChannel::DEFAULT_LINGER {
-            found.push(NonDefault::new(
-                "linger",
-                format!("{:?}", self.linger),
-                format!("{:?}", StreamChannel::DEFAULT_LINGER),
-            ));
-        }
-        found
+        self.settings.non_defaults()
     }
 
     /// Starts the channel on `stream`: splits it, then starts the reader thread and the writer
@@ -291,11 +304,11 @@ impl<C: Codec> StreamChannelBuilder<C> {
     pub fn start<S: Split>(self, stream: S) -> io::Result<StreamChannel> {
         let halves = stream.split()?;
         let shared = Arc::new(Shared::new(
-            self.max_message,
-            self.pending,
-            self.queued_bytes,
-            self.send_limit,
-            self.linger,
+            self.settings.max_message,
+            self.settings.pending,
+            self.settings.queued_bytes,
+            self.settings.send_limit,
+            self.settings.linger,
             halves.interrupt,
         ));
         let mut writer = halves.writer;
@@ -312,8 +325,8 @@ impl<C: Codec> StreamChannelBuilder<C> {
                 drop(writer);
             })?;
         let mut reader = halves.reader;
-        let mut decoder = self.codec.decoder(self.max_message);
-        let chunk = self.read_buffer;
+        let mut decoder = self.codec.decoder(self.settings.max_message);
+        let chunk = self.settings.read_buffer;
         let reading = Arc::clone(&shared);
         let reader = std::thread::Builder::new()
             .name("coqui-transport reader".into())
@@ -497,8 +510,8 @@ impl Channel for StreamChannel {
         let max_receive = locked(&self.shared.inbound).receive_now;
         let max_send = locked(&self.shared.outbound).max_send;
         Capabilities::new()
-            .with_carrier(Carrier::Stream)
-            .with_limits(max_send, max_receive)
+            .carrier(Carrier::Stream)
+            .limits(max_send, max_receive)
     }
 
     fn is_closed(&self) -> bool {

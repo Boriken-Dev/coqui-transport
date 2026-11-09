@@ -625,7 +625,7 @@ fn closing_a_channel_whose_writer_cannot_be_woken_returns_after_the_send_limit()
     let (mine, _theirs) = memory::pipe(1);
     let (reader, writer) = mine.into_halves();
     // An interrupt that wakes nothing, as a platform whose shutdown leaves a blocked write blocked.
-    let halves = Halves::new(reader, writer).with_interrupt(coqui_transport::Interrupt::new(|| {}));
+    let halves = Halves::new(reader, writer).interrupt(coqui_transport::Interrupt::new(|| {}));
     let channel = StreamChannel::builder(LengthPrefix::u32_be())
         .send_limit(Duration::from_millis(100))
         .start(halves)
@@ -691,12 +691,10 @@ fn capabilities_report_the_stream_and_its_limits_as_they_stand() {
     let (one, _other) = channels(LengthPrefix::u32_be());
     assert_eq!(
         one.capabilities(),
-        Capabilities::new()
-            .with_carrier(Carrier::Stream)
-            .with_limits(
-                StreamChannel::DEFAULT_MAX_MESSAGE,
-                StreamChannel::DEFAULT_MAX_MESSAGE
-            )
+        Capabilities::new().carrier(Carrier::Stream).limits(
+            StreamChannel::DEFAULT_MAX_MESSAGE,
+            StreamChannel::DEFAULT_MAX_MESSAGE
+        )
     );
     one.set_max_send(5);
     one.set_max_receive(7);
@@ -734,7 +732,7 @@ fn bounds_too_long_for_the_clock_wait_as_none_would() {
 }
 
 #[test]
-fn only_settings_above_their_defaults_are_listed_as_non_default() {
+fn settings_that_differ_from_their_defaults_are_listed_as_non_default_by_key() {
     let defaults = StreamChannel::builder(LengthPrefix::u32_be());
     assert!(defaults.non_defaults().is_empty());
     let tighter = StreamChannel::builder(LengthPrefix::u32_be())
@@ -744,7 +742,7 @@ fn only_settings_above_their_defaults_are_listed_as_non_default() {
         .send_limit(Duration::from_millis(1))
         .read_buffer(1)
         .linger(Duration::ZERO);
-    assert!(tighter.non_defaults().is_empty());
+    assert_eq!(tighter.non_defaults().len(), 6, "a lower value differs too");
     let looser = StreamChannel::builder(LengthPrefix::u32_be())
         .max_message(StreamChannel::DEFAULT_MAX_MESSAGE + 1)
         .pending(StreamChannel::DEFAULT_PENDING + 1)
@@ -757,15 +755,18 @@ fn only_settings_above_their_defaults_are_listed_as_non_default() {
     assert_eq!(
         names,
         [
+            "linger",
             "max_message",
             "pending",
             "queued_bytes",
-            "send_limit",
             "read_buffer",
-            "linger"
+            "send_limit"
         ]
     );
-    assert_eq!(found[5], NonDefault::new("linger", "501ms", "500ms"));
+    assert_eq!(
+        found[0],
+        NonDefault::new("linger", "[0,501000000]", "[0,500000000]")
+    );
 }
 
 #[test]

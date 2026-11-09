@@ -1,8 +1,6 @@
 //! An [`AsyncChannel`] over any tokio byte stream, read and written by the calls themselves.
 
 use alloc::boxed::Box;
-use alloc::format;
-use alloc::string::ToString;
 use alloc::vec::Vec;
 use core::fmt;
 use core::future::{Future, poll_fn};
@@ -140,13 +138,11 @@ impl StreamChannel {
     /// The default size of one read from the stream: 64 KiB.
     pub const DEFAULT_READ_BUFFER: usize = 64 * 1024;
 
-    /// Settings for a channel framed by `codec`, at their defaults.
+    /// A builder for a channel framed by `codec`, with every setting at its default.
     pub const fn builder<C: Codec>(codec: C) -> StreamChannelBuilder<C> {
         StreamChannelBuilder {
             codec,
-            max_message: Self::DEFAULT_MAX_MESSAGE,
-            send_limit: Self::DEFAULT_SEND_LIMIT,
-            read_buffer: Self::DEFAULT_READ_BUFFER,
+            settings: StreamChannelSettings::new(),
         }
     }
 
@@ -409,8 +405,8 @@ impl AsyncChannel for StreamChannel {
     fn capabilities(&self) -> Capabilities {
         let bounds = locked(&self.bounds);
         Capabilities::new()
-            .with_carrier(Carrier::Stream)
-            .with_limits(bounds.max_send, bounds.receive_now)
+            .carrier(Carrier::Stream)
+            .limits(bounds.max_send, bounds.receive_now)
     }
 
     fn is_closed(&self) -> bool {
@@ -418,66 +414,98 @@ impl AsyncChannel for StreamChannel {
     }
 }
 
-/// The settings of an async [`StreamChannel`], from [`StreamChannel::builder`].
+/// What an async [`StreamChannelBuilder`] takes whole through `settings`, in the form a file, a form
+/// or a peer fills.
+///
+/// Every key is optional (an absent one is its default) and an unknown key is refused; a duration is
+/// a number of seconds, `[secs, nanos]` or `{secs, nanos}`. The type is a guatiao value
+/// (`from_value`, `to_value`, `schema`), and `guatiao_serde::text` reads and writes its text. It is
+/// `#[non_exhaustive]`: start from [`Default`] and assign the fields.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, guatiao::ToValue, guatiao::FromValue, guatiao::Schema,
+)]
+#[map(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct StreamChannelSettings {
+    /// The largest message, both ways, until a `set_max_` call changes it. Default
+    /// [`StreamChannel::DEFAULT_MAX_MESSAGE`].
+    #[map(default = StreamChannelSettings::new().max_message)]
+    pub max_message: usize,
+    /// How long one write or flush may wait with the stream taking nothing, after which the channel
+    /// ends with [`Failure::NoProgress`]; also the most `close` waits for each step. Default
+    /// [`StreamChannel::DEFAULT_SEND_LIMIT`].
+    #[map(default = StreamChannelSettings::new().send_limit)]
+    pub send_limit: Duration,
+    /// The most bytes one read takes from the stream. 0 is 1. Default
+    /// [`StreamChannel::DEFAULT_READ_BUFFER`].
+    #[map(default = StreamChannelSettings::new().read_buffer)]
+    pub read_buffer: usize,
+}
+
+impl StreamChannelSettings {
+    /// Every setting at its default.
+    pub const fn new() -> Self {
+        Self {
+            max_message: StreamChannel::DEFAULT_MAX_MESSAGE,
+            send_limit: StreamChannel::DEFAULT_SEND_LIMIT,
+            read_buffer: StreamChannel::DEFAULT_READ_BUFFER,
+        }
+    }
+
+    /// Every setting that differs from its default, named by key path.
+    #[must_use]
+    pub fn non_defaults(&self) -> Vec<NonDefault> {
+        NonDefault::of_settings(self)
+    }
+}
+
+impl Default for StreamChannelSettings {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Builds an async [`StreamChannel`]: [`StreamChannel::builder`], the settings, then
+/// [`build`](Self::build).
 #[derive(Clone, Debug)]
 #[must_use]
 pub struct StreamChannelBuilder<C> {
     codec: C,
-    max_message: usize,
-    send_limit: Duration,
-    read_buffer: usize,
+    settings: StreamChannelSettings,
 }
 
 impl<C: Codec> StreamChannelBuilder<C> {
-    /// The largest message, both ways, until a `set_max_` call changes it. Default
-    /// [`StreamChannel::DEFAULT_MAX_MESSAGE`].
+    /// The largest message, both ways; see [`StreamChannelSettings::max_message`].
     pub const fn max_message(mut self, bytes: usize) -> Self {
-        self.max_message = bytes;
+        self.settings.max_message = bytes;
         self
     }
 
-    /// How long one write or flush may wait with the stream taking nothing, after which the channel
-    /// ends with [`Failure::NoProgress`]; also the most `close` waits for each step. Default
-    /// [`StreamChannel::DEFAULT_SEND_LIMIT`].
+    /// How long one write or flush may wait with the stream taking nothing; see
+    /// [`StreamChannelSettings::send_limit`].
     pub const fn send_limit(mut self, limit: Duration) -> Self {
-        self.send_limit = limit;
+        self.settings.send_limit = limit;
         self
     }
 
-    /// The most bytes one read takes from the stream. 0 is 1. Default
-    /// [`StreamChannel::DEFAULT_READ_BUFFER`].
+    /// The most bytes one read takes from the stream; see [`StreamChannelSettings::read_buffer`].
     pub const fn read_buffer(mut self, bytes: usize) -> Self {
-        self.read_buffer = bytes;
+        self.settings.read_buffer = bytes;
         self
     }
 
-    /// The settings looser than their defaults, with each value and its default: `max_message`,
-    /// `send_limit` and `read_buffer` above theirs.
+    /// Every limit from `settings`. Replaces what the limit setters set before, and is replaced by
+    /// what they set after it. The codec is an argument, not a setting, and stays.
+    pub const fn settings(mut self, settings: StreamChannelSettings) -> Self {
+        self.settings = settings;
+        self
+    }
+
+    /// Every setting that differs from its default, with each value and its default, named by key
+    /// path.
     #[must_use]
     pub fn non_defaults(&self) -> Vec<NonDefault> {
-        let mut found = Vec::new();
-        if self.max_message > StreamChannel::DEFAULT_MAX_MESSAGE {
-            found.push(NonDefault::new(
-                "max_message",
-                self.max_message.to_string(),
-                StreamChannel::DEFAULT_MAX_MESSAGE.to_string(),
-            ));
-        }
-        if self.send_limit > StreamChannel::DEFAULT_SEND_LIMIT {
-            found.push(NonDefault::new(
-                "send_limit",
-                format!("{:?}", self.send_limit),
-                format!("{:?}", StreamChannel::DEFAULT_SEND_LIMIT),
-            ));
-        }
-        if self.read_buffer > StreamChannel::DEFAULT_READ_BUFFER {
-            found.push(NonDefault::new(
-                "read_buffer",
-                self.read_buffer.to_string(),
-                StreamChannel::DEFAULT_READ_BUFFER.to_string(),
-            ));
-        }
-        found
+        self.settings.non_defaults()
     }
 
     /// The channel on `stream`, which it splits into a reading and a writing half. It does no I/O
@@ -490,8 +518,8 @@ impl<C: Codec> StreamChannelBuilder<C> {
         StreamChannel {
             reading: tokio::sync::Mutex::new(Reading {
                 reader: Box::new(reader),
-                decoder: Box::new(self.codec.decoder(self.max_message)),
-                buffer: alloc::vec![0; self.read_buffer.max(1)],
+                decoder: Box::new(self.codec.decoder(self.settings.max_message)),
+                buffer: alloc::vec![0; self.settings.read_buffer.max(1)],
                 end: None,
             }),
             writing: tokio::sync::Mutex::new(Writing {
@@ -501,15 +529,15 @@ impl<C: Codec> StreamChannelBuilder<C> {
                 shut: false,
             }),
             bounds: Mutex::new(Bounds {
-                receive_now: self.max_message,
+                receive_now: self.settings.max_message,
                 staged: None,
                 taken: 0,
-                max_send: self.max_message,
+                max_send: self.settings.max_message,
             }),
             stop: watch::Sender::new(None),
             ended: AtomicBool::new(false),
             encoder: Box::new(self.codec),
-            send_limit: self.send_limit,
+            send_limit: self.settings.send_limit,
         }
     }
 }

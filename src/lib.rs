@@ -33,4 +33,4 @@ pub use connector::{Connector, Listener};
 pub use failure::Failure;
 pub use non_default::NonDefault;
 pub use stream::{Duplex, Halves, Interrupt, Split};
-pub use stream_channel::{StreamChannel, StreamChannelBuilder};
+pub use stream_channel::{StreamChannel, StreamChannelBuilder, StreamChannelSettings};

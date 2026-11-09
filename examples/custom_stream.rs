@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     );
     if let Some(interrupt) = halves.interrupt {
-        counted = counted.with_interrupt(interrupt);
+        counted = counted.interrupt(interrupt);
     }
     let channel = StreamChannel::start(counted, LengthPrefix::u32_le())?;
 

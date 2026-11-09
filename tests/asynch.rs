@@ -394,7 +394,7 @@ async fn a_duplex_of_two_async_halves_is_one_stream() {
 }
 
 #[test]
-fn only_settings_above_their_defaults_are_listed_as_non_default() {
+fn settings_that_differ_from_their_defaults_are_listed_as_non_default_by_key() {
     assert!(
         StreamChannel::builder(LengthPrefix::u32_be())
             .non_defaults()
@@ -406,7 +406,7 @@ fn only_settings_above_their_defaults_are_listed_as_non_default() {
         .read_buffer(StreamChannel::DEFAULT_READ_BUFFER + 1);
     let found = looser.non_defaults();
     let names: Vec<&str> = found.iter().map(|n| n.setting.as_str()).collect();
-    assert_eq!(names, ["max_message", "send_limit", "read_buffer"]);
+    assert_eq!(names, ["max_message", "read_buffer", "send_limit"]);
     assert_eq!(
         found[0],
         NonDefault::new(
@@ -415,6 +415,6 @@ fn only_settings_above_their_defaults_are_listed_as_non_default() {
             StreamChannel::DEFAULT_MAX_MESSAGE.to_string()
         )
     );
-    assert_eq!(found[1].value, "31s");
-    assert_eq!(found[1].default, "30s");
+    assert_eq!(found[2].value, "[31,0]");
+    assert_eq!(found[2].default, "[30,0]");
 }

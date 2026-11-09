@@ -36,7 +36,7 @@ impl Split for TcpStream {
         let reader = self.try_clone()?;
         let control = self.try_clone()?;
         Ok(
-            Halves::new(reader, WriteHalf(self)).with_interrupt(Interrupt::new(move || {
+            Halves::new(reader, WriteHalf(self)).interrupt(Interrupt::new(move || {
                 let _ = control.shutdown(Shutdown::Both);
             })),
         )

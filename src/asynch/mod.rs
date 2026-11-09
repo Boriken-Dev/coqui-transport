@@ -16,7 +16,7 @@ use core::future::Future;
 use core::pin::Pin;
 use core::time::Duration;
 
-pub use stream_channel::{StreamChannel, StreamChannelBuilder};
+pub use stream_channel::{StreamChannel, StreamChannelBuilder, StreamChannelSettings};
 
 use crate::capabilities::Capabilities;
 use crate::failure::Failure;

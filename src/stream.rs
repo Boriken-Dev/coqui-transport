@@ -126,7 +126,7 @@ impl<R, W> Halves<R, W> {
 
     /// Adds the way to end both directions.
     #[must_use]
-    pub fn with_interrupt(mut self, interrupt: Interrupt) -> Self {
+    pub fn interrupt(mut self, interrupt: Interrupt) -> Self {
         self.interrupt = Some(interrupt);
         self
     }
