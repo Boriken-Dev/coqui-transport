@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   little-endian (`u8`, `u16_be`, `u16_le`, `u32_be`, `u32_le`), with empty messages allowed
   (`allow_empty`, the constructors' state) or refused (`refuse_empty`). No project's framing is
   in the crate; a protocol defines its own as a preset of `LengthPrefix`.
+- `StreamChannelSettings` (and `asynch::StreamChannelSettings`): the builders' limits as a guatiao value a file fills, taken whole
+  by `settings(..)`, with `non_defaults()` generated from the schema's defaults and named by key path. `Capabilities` sets
+  by `carrier`, `limits` and `datagrams`, and `Halves` by `interrupt`. guatiao is a dependency.
 - `StreamChannel` and `StreamChannelBuilder`: a `Channel` over any `Split` stream, with settings
   `max_message` (1 MiB), `pending` (64 messages read ahead), `queued_bytes` (64 MiB), `send_limit`
   (30 s), `read_buffer` (64 KiB) and `linger` (500 ms: how long `close` reads and discards, after

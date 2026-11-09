@@ -27,6 +27,16 @@ pub const fn coqui_transport::asynch::StreamChannelBuilder<C>::max_message(self,
 pub fn coqui_transport::asynch::StreamChannelBuilder<C>::non_defaults(&self) -> alloc::vec::Vec<coqui_transport::NonDefault>
 pub const fn coqui_transport::asynch::StreamChannelBuilder<C>::read_buffer(self, usize) -> Self
 pub const fn coqui_transport::asynch::StreamChannelBuilder<C>::send_limit(self, core::time::Duration) -> Self
+pub const fn coqui_transport::asynch::StreamChannelBuilder<C>::settings(self, coqui_transport::asynch::StreamChannelSettings) -> Self
+#[non_exhaustive] pub struct coqui_transport::asynch::StreamChannelSettings
+pub coqui_transport::asynch::StreamChannelSettings::max_message: usize
+pub coqui_transport::asynch::StreamChannelSettings::read_buffer: usize
+pub coqui_transport::asynch::StreamChannelSettings::send_limit: core::time::Duration
+impl coqui_transport::asynch::StreamChannelSettings
+pub const fn coqui_transport::asynch::StreamChannelSettings::new() -> Self
+pub fn coqui_transport::asynch::StreamChannelSettings::non_defaults(&self) -> alloc::vec::Vec<coqui_transport::NonDefault>
+impl core::default::Default for coqui_transport::asynch::StreamChannelSettings
+pub fn coqui_transport::asynch::StreamChannelSettings::default() -> Self
 pub trait coqui_transport::asynch::AsyncChannel: core::marker::Send + core::marker::Sync
 pub fn coqui_transport::asynch::AsyncChannel::capabilities(&self) -> coqui_transport::Capabilities
 pub fn coqui_transport::asynch::AsyncChannel::close(&self) -> coqui_transport::asynch::BoxFuture<'_, ()>
@@ -198,10 +208,10 @@ pub coqui_transport::Capabilities::max_datagram: core::option::Option<usize>
 pub coqui_transport::Capabilities::max_receive: core::option::Option<usize>
 pub coqui_transport::Capabilities::max_send: core::option::Option<usize>
 impl coqui_transport::Capabilities
+pub const fn coqui_transport::Capabilities::carrier(self, coqui_transport::Carrier) -> Self
+pub const fn coqui_transport::Capabilities::datagrams(self, core::option::Option<(coqui_transport::Delivery, core::option::Option<usize>)>) -> Self
+pub const fn coqui_transport::Capabilities::limits(self, usize, usize) -> Self
 pub const fn coqui_transport::Capabilities::new() -> Self
-pub const fn coqui_transport::Capabilities::with_carrier(self, coqui_transport::Carrier) -> Self
-pub const fn coqui_transport::Capabilities::with_datagrams(self, core::option::Option<(coqui_transport::Delivery, core::option::Option<usize>)>) -> Self
-pub const fn coqui_transport::Capabilities::with_limits(self, usize, usize) -> Self
 pub struct coqui_transport::Duplex<R, W>
 impl<R, W> coqui_transport::Duplex<R, W>
 pub fn coqui_transport::Duplex<R, W>::into_parts(self) -> (R, W)
@@ -234,8 +244,8 @@ pub coqui_transport::Halves::interrupt: core::option::Option<coqui_transport::In
 pub coqui_transport::Halves::reader: R
 pub coqui_transport::Halves::writer: W
 impl<R, W> coqui_transport::Halves<R, W>
+pub fn coqui_transport::Halves<R, W>::interrupt(self, coqui_transport::Interrupt) -> Self
 pub const fn coqui_transport::Halves<R, W>::new(R, W) -> Self
-pub fn coqui_transport::Halves<R, W>::with_interrupt(self, coqui_transport::Interrupt) -> Self
 impl<R, W> coqui_transport::Split for coqui_transport::Halves<R, W> where R: alloc::io::read::Read + core::marker::Send + 'static, W: core::io::write::Write + core::marker::Send + 'static
 pub type coqui_transport::Halves<R, W>::Reader = R
 pub type coqui_transport::Halves<R, W>::Writer = W
@@ -252,6 +262,9 @@ pub struct coqui_transport::NonDefault
 pub coqui_transport::NonDefault::default: alloc::string::String
 pub coqui_transport::NonDefault::setting: alloc::string::String
 pub coqui_transport::NonDefault::value: alloc::string::String
+impl coqui_transport::NonDefault
+pub fn coqui_transport::NonDefault::from_difference(&guatiao::schema::differences::Difference) -> Self
+pub fn coqui_transport::NonDefault::of_settings<T: guatiao::value::convert::ToValue + guatiao::schema::describe::Schema>(&T) -> alloc::vec::Vec<Self>
 impl coqui_transport::NonDefault
 pub fn coqui_transport::NonDefault::new(impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>) -> Self
 pub struct coqui_transport::StreamChannel
@@ -291,7 +304,20 @@ pub const fn coqui_transport::StreamChannelBuilder<C>::pending(self, usize) -> S
 pub const fn coqui_transport::StreamChannelBuilder<C>::queued_bytes(self, usize) -> Self
 pub const fn coqui_transport::StreamChannelBuilder<C>::read_buffer(self, usize) -> Self
 pub const fn coqui_transport::StreamChannelBuilder<C>::send_limit(self, core::time::Duration) -> Self
+pub const fn coqui_transport::StreamChannelBuilder<C>::settings(self, coqui_transport::StreamChannelSettings) -> Self
 pub fn coqui_transport::StreamChannelBuilder<C>::start<S: coqui_transport::Split>(self, S) -> core::io::error::Result<coqui_transport::StreamChannel>
+#[non_exhaustive] pub struct coqui_transport::StreamChannelSettings
+pub coqui_transport::StreamChannelSettings::linger: core::time::Duration
+pub coqui_transport::StreamChannelSettings::max_message: usize
+pub coqui_transport::StreamChannelSettings::pending: usize
+pub coqui_transport::StreamChannelSettings::queued_bytes: usize
+pub coqui_transport::StreamChannelSettings::read_buffer: usize
+pub coqui_transport::StreamChannelSettings::send_limit: core::time::Duration
+impl coqui_transport::StreamChannelSettings
+pub const fn coqui_transport::StreamChannelSettings::new() -> Self
+pub fn coqui_transport::StreamChannelSettings::non_defaults(&self) -> alloc::vec::Vec<coqui_transport::NonDefault>
+impl core::default::Default for coqui_transport::StreamChannelSettings
+pub fn coqui_transport::StreamChannelSettings::default() -> Self
 pub trait coqui_transport::Channel: core::marker::Send + core::marker::Sync
 pub fn coqui_transport::Channel::capabilities(&self) -> coqui_transport::Capabilities
 pub fn coqui_transport::Channel::close(&self)

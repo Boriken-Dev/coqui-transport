@@ -6,13 +6,13 @@ with the source at <https://github.com/Boriken-Dev/coqui-transport>.
 
 | Feature | Adds | Needed for | Default |
 | --- | --- | --- | --- |
-| `tokio` | `asynch::{AsyncChannel, AsyncConnector, AsyncListener, BoxFuture, StreamChannel, StreamChannelBuilder}`, `Duplex` as `AsyncRead`/`AsyncWrite`, `AsyncConnector for tcp::Connector`, `AsyncListener for tokio::net::TcpListener`; on `tokio` with `io-util`, `net`, `sync`, `time` | async transports | off |
+| `tokio` | `asynch::{AsyncChannel, AsyncConnector, AsyncListener, BoxFuture, StreamChannel, StreamChannelBuilder, StreamChannelSettings}`, `Duplex` as `AsyncRead`/`AsyncWrite`, `AsyncConnector for tcp::Connector`, `AsyncListener for tokio::net::TcpListener`; on `tokio` with `io-util`, `net`, `sync`, `time` | async transports | off |
 
-MSRV Rust 1.89. A default build depends on nothing beyond `std`. Version `0.0.0-alpha.0`, not published; the API may change in
+MSRV Rust 1.89. A default build depends on `guatiao` and `guatiao-serde` (by revision: the settings types' value form and the text of a non-default value) and nothing beyond `std`. Version `0.0.0-alpha.0`, not published; the API may change in
 any release before 1.0. The default build compiles for `wasm32-unknown-unknown`; `--features tokio` does not (tokio's `net`).
 
 Imports: the root holds `Channel`, `Datagrams`, `Delivery`, `Failure`, `Capabilities`, `Carrier`, `Connector`, `Listener`, `NonDefault`,
-`Duplex`, `Halves`, `Interrupt`, `Split`, `StreamChannel`, `StreamChannelBuilder`. Public modules: `frame`, `memory`, `stdio`,
+`Duplex`, `Halves`, `Interrupt`, `Split`, `StreamChannel`, `StreamChannelBuilder`, `StreamChannelSettings`. Public modules: `frame`, `memory`, `stdio`,
 `tcp`, `asynch` (feature `tokio`).
 
 No `unsafe` code (`#![forbid(unsafe_code)]`). No process-wide state. The library prints nothing and starts no runtime; the only
@@ -95,9 +95,9 @@ pub struct Capabilities {                                                       
 }
 impl Capabilities {
     pub const fn new() -> Self;                                                            // nothing reported
-    pub const fn with_carrier(self, carrier: Carrier) -> Self;
-    pub const fn with_limits(self, max_send: usize, max_receive: usize) -> Self;
-    pub const fn with_datagrams(self, datagrams: Option<(Delivery, Option<usize>)>) -> Self;
+    pub const fn carrier(self, carrier: Carrier) -> Self;
+    pub const fn limits(self, max_send: usize, max_receive: usize) -> Self;
+    pub const fn datagrams(self, datagrams: Option<(Delivery, Option<usize>)>) -> Self;
 }
 ```
 
@@ -127,7 +127,7 @@ impl<R, W> Duplex<R, W> {
 pub struct Interrupt;                          // Clone; ends both directions from any thread, may be called again
 impl Interrupt { pub fn new(end: impl Fn() + Send + Sync + 'static) -> Self; pub fn interrupt(&self); }
 pub struct Halves<R, W> { pub reader: R, pub writer: W, pub interrupt: Option<Interrupt> }   // non_exhaustive
-impl<R, W> Halves<R, W> { pub const fn new(reader: R, writer: W) -> Self; pub fn with_interrupt(self, i: Interrupt) -> Self; }
+impl<R, W> Halves<R, W> { pub const fn new(reader: R, writer: W) -> Self; pub fn interrupt(self, i: Interrupt) -> Self; }
 pub trait Split {
     type Reader: Read + Send + 'static;
     type Writer: Write + Send + 'static;       // dropping it ends the write direction
@@ -195,16 +195,22 @@ impl<C: Codec> StreamChannelBuilder<C> {       // Clone, must_use
     pub const fn send_limit(self, limit: Duration) -> Self;
     pub const fn read_buffer(self, bytes: usize) -> Self;        // 0 is 1
     pub const fn linger(self, quiet: Duration) -> Self;          // close's wait for the peer's end
-    pub fn non_defaults(&self) -> Vec<NonDefault>;                 // settings above their defaults: name, value, default
+    pub const fn settings(self, settings: StreamChannelSettings) -> Self;   // every limit, whole; the last setter wins
+    pub fn non_defaults(&self) -> Vec<NonDefault>;                 // every setting that differs from its default, by key path: name, value, default
     pub fn start<S: Split>(self, stream: S) -> io::Result<StreamChannel>;   // splits, starts two threads
 }
 impl Channel for StreamChannel; impl Drop for StreamChannel;     // drop closes
+// A guatiao value (ToValue, FromValue, Schema): every key optional, unknown keys refused, a duration is seconds, [secs, nanos] or {secs, nanos}.
+#[non_exhaustive] pub struct StreamChannelSettings { pub max_message: usize, pub pending: usize, pub queued_bytes: usize,
+    pub send_limit: Duration, pub read_buffer: usize, pub linger: Duration }   // Default: the DEFAULT_ constants
+impl StreamChannelSettings { pub const fn new() -> Self; pub fn non_defaults(&self) -> Vec<NonDefault>; }   // also Default
 
 pub struct NonDefault { pub setting: String, pub value: String, pub default: String }   // Debug, Clone, PartialEq, Eq, Hash; NonDefault::new(setting, value, default)
 ```
 
-`non_defaults()` returns data and nothing is logged or refused: the application that knows the use case decides what a larger
-limit means. `value` and `default` are text (a number, or a `Duration` as `{:?}` prints it, `31s`).
+`non_defaults()` returns data and nothing is logged or refused: the application that knows the use case decides what a
+different limit means. `value` and `default` are text (a number, or a `Duration` as its compact JSON, `[31,0]`), and `setting` is the
+key path in `StreamChannelSettings`. `NonDefault::of_settings(&settings)` makes the list for any guatiao settings type.
 
 Implements every `Channel` method: staging and `set_pending` return `Ok`, `datagrams()` is `None`, `capabilities()` is
 `Carrier::Stream` with the current limits. A reader thread decodes and holds up to `pending` messages, judging each by the bound
@@ -284,8 +290,10 @@ impl StreamChannel {                               // asynch::StreamChannel
 impl<C: Codec> StreamChannelBuilder<C> {
     pub const fn max_message(self, bytes: usize) -> Self; pub const fn send_limit(self, limit: Duration) -> Self;
     pub const fn read_buffer(self, bytes: usize) -> Self; pub fn non_defaults(&self) -> Vec<NonDefault>;
+    pub const fn settings(self, settings: asynch::StreamChannelSettings) -> Self;
     pub fn build<S: AsyncRead + AsyncWrite + Send + 'static>(self, stream: S) -> StreamChannel;
 }
+#[non_exhaustive] pub struct asynch::StreamChannelSettings { pub max_message: usize, pub send_limit: Duration, pub read_buffer: usize }   // guatiao value, as above
 impl AsyncChannel for asynch::StreamChannel;
 ```
 
