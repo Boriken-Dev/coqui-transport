@@ -12,7 +12,8 @@ use std::time::{Duration, Instant};
 use coqui_transport::frame::{Codec, LengthPrefix};
 use coqui_transport::memory::{self, ReadHalf, WriteHalf};
 use coqui_transport::{
-    Capabilities, Carrier, Channel, Failure, Halves, StreamChannel, StreamChannelBuilder,
+    Capabilities, Carrier, Channel, Failure, Halves, NonDefault, StreamChannel,
+    StreamChannelBuilder,
 };
 use support::WAIT;
 
@@ -733,9 +734,9 @@ fn bounds_too_long_for_the_clock_wait_as_none_would() {
 }
 
 #[test]
-fn only_settings_above_their_defaults_are_listed_as_weaker() {
+fn only_settings_above_their_defaults_are_listed_as_non_default() {
     let defaults = StreamChannel::builder(LengthPrefix::u32_be());
-    assert!(defaults.weakened().is_empty());
+    assert!(defaults.non_defaults().is_empty());
     let tighter = StreamChannel::builder(LengthPrefix::u32_be())
         .max_message(1)
         .pending(1)
@@ -743,7 +744,7 @@ fn only_settings_above_their_defaults_are_listed_as_weaker() {
         .send_limit(Duration::from_millis(1))
         .read_buffer(1)
         .linger(Duration::ZERO);
-    assert!(tighter.weakened().is_empty());
+    assert!(tighter.non_defaults().is_empty());
     let looser = StreamChannel::builder(LengthPrefix::u32_be())
         .max_message(StreamChannel::DEFAULT_MAX_MESSAGE + 1)
         .pending(StreamChannel::DEFAULT_PENDING + 1)
@@ -751,8 +752,10 @@ fn only_settings_above_their_defaults_are_listed_as_weaker() {
         .send_limit(StreamChannel::DEFAULT_SEND_LIMIT + Duration::from_secs(1))
         .read_buffer(StreamChannel::DEFAULT_READ_BUFFER + 1)
         .linger(StreamChannel::DEFAULT_LINGER + Duration::from_millis(1));
+    let found = looser.non_defaults();
+    let names: Vec<&str> = found.iter().map(|n| n.setting.as_str()).collect();
     assert_eq!(
-        looser.weakened(),
+        names,
         [
             "max_message",
             "pending",
@@ -762,6 +765,7 @@ fn only_settings_above_their_defaults_are_listed_as_weaker() {
             "linger"
         ]
     );
+    assert_eq!(found[5], NonDefault::new("linger", "501ms", "500ms"));
 }
 
 #[test]

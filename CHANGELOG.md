@@ -29,7 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `max_message` (1 MiB), `pending` (64 messages read ahead), `queued_bytes` (64 MiB), `send_limit`
   (30 s), `read_buffer` (64 KiB) and `linger` (500 ms: how long `close` reads and discards, after
   the peer last sent anything, waiting for the peer's end, so a socket is not reset with bytes
-  unread), and `weakened` listing those above their defaults.
+  unread), and `non_defaults` returning those above their defaults as `NonDefault` data (the
+  setting, its value and its default), never logged or refused.
 - `memory::pipe`, two connected in-memory streams with a bounded buffer each way.
 - `stdio::current`, this process's standard input and output as one `Duplex`.
 - `tcp`: `Split` for `std::net::TcpStream` (with `tcp::WriteHalf`; a socket with no read timeout

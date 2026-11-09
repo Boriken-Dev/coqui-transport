@@ -1,6 +1,8 @@
 //! An [`AsyncChannel`] over any tokio byte stream, read and written by the calls themselves.
 
 use alloc::boxed::Box;
+use alloc::format;
+use alloc::string::ToString;
 use alloc::vec::Vec;
 use core::fmt;
 use core::future::{Future, poll_fn};
@@ -18,6 +20,7 @@ use super::{AsyncChannel, BoxFuture, within};
 use crate::capabilities::{Capabilities, Carrier};
 use crate::failure::Failure;
 use crate::frame::{Codec, DEFAULT_MAX_MESSAGE, Decode, FrameError};
+use crate::non_default::NonDefault;
 use crate::sync::locked;
 
 /// An [`AsyncChannel`] over an async byte stream, every message one frame of the [`Codec`] it was
@@ -448,21 +451,33 @@ impl<C: Codec> StreamChannelBuilder<C> {
         self
     }
 
-    /// The names of the settings looser than their defaults: `max_message`, `send_limit` and
-    /// `read_buffer` above theirs.
+    /// The settings looser than their defaults, with each value and its default: `max_message`,
+    /// `send_limit` and `read_buffer` above theirs.
     #[must_use]
-    pub fn weakened(&self) -> Vec<&'static str> {
-        let mut names = Vec::new();
+    pub fn non_defaults(&self) -> Vec<NonDefault> {
+        let mut found = Vec::new();
         if self.max_message > StreamChannel::DEFAULT_MAX_MESSAGE {
-            names.push("max_message");
+            found.push(NonDefault::new(
+                "max_message",
+                self.max_message.to_string(),
+                StreamChannel::DEFAULT_MAX_MESSAGE.to_string(),
+            ));
         }
         if self.send_limit > StreamChannel::DEFAULT_SEND_LIMIT {
-            names.push("send_limit");
+            found.push(NonDefault::new(
+                "send_limit",
+                format!("{:?}", self.send_limit),
+                format!("{:?}", StreamChannel::DEFAULT_SEND_LIMIT),
+            ));
         }
         if self.read_buffer > StreamChannel::DEFAULT_READ_BUFFER {
-            names.push("read_buffer");
+            found.push(NonDefault::new(
+                "read_buffer",
+                self.read_buffer.to_string(),
+                StreamChannel::DEFAULT_READ_BUFFER.to_string(),
+            ));
         }
-        names
+        found
     }
 
     /// The channel on `stream`, which it splits into a reading and a writing half. It does no I/O

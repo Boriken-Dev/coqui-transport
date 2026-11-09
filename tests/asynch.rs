@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use coqui_transport::asynch::{AsyncChannel, AsyncConnector, AsyncListener, StreamChannel};
 use coqui_transport::frame::{Codec, LengthPrefix};
-use coqui_transport::{Carrier, Duplex, Failure, tcp};
+use coqui_transport::{Carrier, Duplex, Failure, NonDefault, tcp};
 use support::{WAIT, decode_cases, encode_cases, presets};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
 
@@ -394,18 +394,27 @@ async fn a_duplex_of_two_async_halves_is_one_stream() {
 }
 
 #[test]
-fn only_settings_above_their_defaults_are_listed_as_weaker() {
+fn only_settings_above_their_defaults_are_listed_as_non_default() {
     assert!(
         StreamChannel::builder(LengthPrefix::u32_be())
-            .weakened()
+            .non_defaults()
             .is_empty()
     );
     let looser = StreamChannel::builder(LengthPrefix::u32_be())
         .max_message(StreamChannel::DEFAULT_MAX_MESSAGE + 1)
         .send_limit(StreamChannel::DEFAULT_SEND_LIMIT + Duration::from_secs(1))
         .read_buffer(StreamChannel::DEFAULT_READ_BUFFER + 1);
+    let found = looser.non_defaults();
+    let names: Vec<&str> = found.iter().map(|n| n.setting.as_str()).collect();
+    assert_eq!(names, ["max_message", "send_limit", "read_buffer"]);
     assert_eq!(
-        looser.weakened(),
-        ["max_message", "send_limit", "read_buffer"]
+        found[0],
+        NonDefault::new(
+            "max_message",
+            (StreamChannel::DEFAULT_MAX_MESSAGE + 1).to_string(),
+            StreamChannel::DEFAULT_MAX_MESSAGE.to_string()
+        )
     );
+    assert_eq!(found[1].value, "31s");
+    assert_eq!(found[1].default, "30s");
 }

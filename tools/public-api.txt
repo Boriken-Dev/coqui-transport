@@ -24,9 +24,9 @@ pub struct coqui_transport::asynch::StreamChannelBuilder<C>
 impl<C: coqui_transport::frame::Codec> coqui_transport::asynch::StreamChannelBuilder<C>
 pub fn coqui_transport::asynch::StreamChannelBuilder<C>::build<S>(self, S) -> coqui_transport::asynch::StreamChannel where S: tokio::io::async_read::AsyncRead + tokio::io::async_write::AsyncWrite + core::marker::Send + 'static
 pub const fn coqui_transport::asynch::StreamChannelBuilder<C>::max_message(self, usize) -> Self
+pub fn coqui_transport::asynch::StreamChannelBuilder<C>::non_defaults(&self) -> alloc::vec::Vec<coqui_transport::NonDefault>
 pub const fn coqui_transport::asynch::StreamChannelBuilder<C>::read_buffer(self, usize) -> Self
 pub const fn coqui_transport::asynch::StreamChannelBuilder<C>::send_limit(self, core::time::Duration) -> Self
-pub fn coqui_transport::asynch::StreamChannelBuilder<C>::weakened(&self) -> alloc::vec::Vec<&'static str>
 pub trait coqui_transport::asynch::AsyncChannel: core::marker::Send + core::marker::Sync
 pub fn coqui_transport::asynch::AsyncChannel::capabilities(&self) -> coqui_transport::Capabilities
 pub fn coqui_transport::asynch::AsyncChannel::close(&self) -> coqui_transport::asynch::BoxFuture<'_, ()>
@@ -248,6 +248,12 @@ pub fn coqui_transport::Interrupt::interrupt(&self)
 pub fn coqui_transport::Interrupt::new(impl core::ops::function::Fn() + core::marker::Send + core::marker::Sync + 'static) -> Self
 impl core::fmt::Debug for coqui_transport::Interrupt
 pub fn coqui_transport::Interrupt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct coqui_transport::NonDefault
+pub coqui_transport::NonDefault::default: alloc::string::String
+pub coqui_transport::NonDefault::setting: alloc::string::String
+pub coqui_transport::NonDefault::value: alloc::string::String
+impl coqui_transport::NonDefault
+pub fn coqui_transport::NonDefault::new(impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>) -> Self
 pub struct coqui_transport::StreamChannel
 impl coqui_transport::StreamChannel
 pub const coqui_transport::StreamChannel::DEFAULT_LINGER: core::time::Duration
@@ -280,12 +286,12 @@ pub struct coqui_transport::StreamChannelBuilder<C>
 impl<C: coqui_transport::frame::Codec> coqui_transport::StreamChannelBuilder<C>
 pub const fn coqui_transport::StreamChannelBuilder<C>::linger(self, core::time::Duration) -> Self
 pub const fn coqui_transport::StreamChannelBuilder<C>::max_message(self, usize) -> Self
+pub fn coqui_transport::StreamChannelBuilder<C>::non_defaults(&self) -> alloc::vec::Vec<coqui_transport::NonDefault>
 pub const fn coqui_transport::StreamChannelBuilder<C>::pending(self, usize) -> Self
 pub const fn coqui_transport::StreamChannelBuilder<C>::queued_bytes(self, usize) -> Self
 pub const fn coqui_transport::StreamChannelBuilder<C>::read_buffer(self, usize) -> Self
 pub const fn coqui_transport::StreamChannelBuilder<C>::send_limit(self, core::time::Duration) -> Self
 pub fn coqui_transport::StreamChannelBuilder<C>::start<S: coqui_transport::Split>(self, S) -> core::io::error::Result<coqui_transport::StreamChannel>
-pub fn coqui_transport::StreamChannelBuilder<C>::weakened(&self) -> alloc::vec::Vec<&'static str>
 pub trait coqui_transport::Channel: core::marker::Send + core::marker::Sync
 pub fn coqui_transport::Channel::capabilities(&self) -> coqui_transport::Capabilities
 pub fn coqui_transport::Channel::close(&self)

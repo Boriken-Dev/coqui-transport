@@ -11,7 +11,7 @@ with the source at <https://github.com/Boriken-Dev/coqui-transport>.
 MSRV Rust 1.89. A default build depends on nothing beyond `std`. Version `0.0.0-alpha.0`, not published; the API may change in
 any release before 1.0. The default build compiles for `wasm32-unknown-unknown`; `--features tokio` does not (tokio's `net`).
 
-Imports: the root holds `Channel`, `Datagrams`, `Delivery`, `Failure`, `Capabilities`, `Carrier`, `Connector`, `Listener`,
+Imports: the root holds `Channel`, `Datagrams`, `Delivery`, `Failure`, `Capabilities`, `Carrier`, `Connector`, `Listener`, `NonDefault`,
 `Duplex`, `Halves`, `Interrupt`, `Split`, `StreamChannel`, `StreamChannelBuilder`. Public modules: `frame`, `memory`, `stdio`,
 `tcp`, `asynch` (feature `tokio`).
 
@@ -195,11 +195,16 @@ impl<C: Codec> StreamChannelBuilder<C> {       // Clone, must_use
     pub const fn send_limit(self, limit: Duration) -> Self;
     pub const fn read_buffer(self, bytes: usize) -> Self;        // 0 is 1
     pub const fn linger(self, quiet: Duration) -> Self;          // close's wait for the peer's end
-    pub fn weakened(&self) -> Vec<&'static str>;                  // names of settings above their defaults
+    pub fn non_defaults(&self) -> Vec<NonDefault>;                 // settings above their defaults: name, value, default
     pub fn start<S: Split>(self, stream: S) -> io::Result<StreamChannel>;   // splits, starts two threads
 }
 impl Channel for StreamChannel; impl Drop for StreamChannel;     // drop closes
+
+pub struct NonDefault { pub setting: String, pub value: String, pub default: String }   // Debug, Clone, PartialEq, Eq, Hash; NonDefault::new(setting, value, default)
 ```
+
+`non_defaults()` returns data and nothing is logged or refused: the application that knows the use case decides what a larger
+limit means. `value` and `default` are text (a number, or a `Duration` as `{:?}` prints it, `31s`).
 
 Implements every `Channel` method: staging and `set_pending` return `Ok`, `datagrams()` is `None`, `capabilities()` is
 `Carrier::Stream` with the current limits. A reader thread decodes and holds up to `pending` messages, judging each by the bound
@@ -278,7 +283,7 @@ impl StreamChannel {                               // asynch::StreamChannel
 }
 impl<C: Codec> StreamChannelBuilder<C> {
     pub const fn max_message(self, bytes: usize) -> Self; pub const fn send_limit(self, limit: Duration) -> Self;
-    pub const fn read_buffer(self, bytes: usize) -> Self; pub fn weakened(&self) -> Vec<&'static str>;
+    pub const fn read_buffer(self, bytes: usize) -> Self; pub fn non_defaults(&self) -> Vec<NonDefault>;
     pub fn build<S: AsyncRead + AsyncWrite + Send + 'static>(self, stream: S) -> StreamChannel;
 }
 impl AsyncChannel for asynch::StreamChannel;

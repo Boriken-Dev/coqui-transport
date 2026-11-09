@@ -3,6 +3,8 @@
 mod shared;
 
 use alloc::boxed::Box;
+use alloc::format;
+use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt;
@@ -17,6 +19,7 @@ use crate::channel::Channel;
 use crate::deadline;
 use crate::failure::Failure;
 use crate::frame::{Codec, DEFAULT_MAX_MESSAGE, FrameError};
+use crate::non_default::NonDefault;
 use crate::stream::Split;
 use crate::sync::{locked, wait_until};
 
@@ -166,8 +169,8 @@ impl fmt::Debug for StreamChannel {
 /// The settings of a [`StreamChannel`], from [`StreamChannel::builder`].
 ///
 /// Every limit is a setting with a finite default; none has a floor beyond what makes it mean
-/// anything (a read-ahead of 0 and a read buffer of 0 are 1). [`weakened`](Self::weakened) lists
-/// those set looser than their defaults.
+/// anything (a read-ahead of 0 and a read buffer of 0 are 1).
+/// [`non_defaults`](Self::non_defaults) lists those set looser than their defaults.
 #[derive(Clone, Debug)]
 #[must_use]
 pub struct StreamChannelBuilder<C> {
@@ -228,30 +231,54 @@ impl<C: Codec> StreamChannelBuilder<C> {
         self
     }
 
-    /// The names of the settings looser than their defaults: `max_message`, `pending`,
-    /// `queued_bytes`, `send_limit`, `read_buffer` and `linger` above theirs.
+    /// The settings looser than their defaults, with each value and its default: `max_message`,
+    /// `pending`, `queued_bytes`, `send_limit`, `read_buffer` and `linger` above theirs.
     #[must_use]
-    pub fn weakened(&self) -> Vec<&'static str> {
-        let mut names = Vec::new();
+    pub fn non_defaults(&self) -> Vec<NonDefault> {
+        let mut found = Vec::new();
         if self.max_message > StreamChannel::DEFAULT_MAX_MESSAGE {
-            names.push("max_message");
+            found.push(NonDefault::new(
+                "max_message",
+                self.max_message.to_string(),
+                StreamChannel::DEFAULT_MAX_MESSAGE.to_string(),
+            ));
         }
         if self.pending > StreamChannel::DEFAULT_PENDING {
-            names.push("pending");
+            found.push(NonDefault::new(
+                "pending",
+                self.pending.to_string(),
+                StreamChannel::DEFAULT_PENDING.to_string(),
+            ));
         }
         if self.queued_bytes > StreamChannel::DEFAULT_QUEUED_BYTES {
-            names.push("queued_bytes");
+            found.push(NonDefault::new(
+                "queued_bytes",
+                self.queued_bytes.to_string(),
+                StreamChannel::DEFAULT_QUEUED_BYTES.to_string(),
+            ));
         }
         if self.send_limit > StreamChannel::DEFAULT_SEND_LIMIT {
-            names.push("send_limit");
+            found.push(NonDefault::new(
+                "send_limit",
+                format!("{:?}", self.send_limit),
+                format!("{:?}", StreamChannel::DEFAULT_SEND_LIMIT),
+            ));
         }
         if self.read_buffer > StreamChannel::DEFAULT_READ_BUFFER {
-            names.push("read_buffer");
+            found.push(NonDefault::new(
+                "read_buffer",
+                self.read_buffer.to_string(),
+                StreamChannel::DEFAULT_READ_BUFFER.to_string(),
+            ));
         }
         if self.linger > StreamChannel::DEFAULT_LINGER {
-            names.push("linger");
+            found.push(NonDefault::new(
+                "linger",
+                format!("{:?}", self.linger),
+                format!("{:?}", StreamChannel::DEFAULT_LINGER),
+            ));
         }
-        names
+        found
     }
 
     /// Starts the channel on `stream`: splits it, then starts the reader thread and the writer
