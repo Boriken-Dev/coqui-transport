@@ -411,10 +411,11 @@ impl AsyncChannel for StreamChannel {
 ///
 /// Every key is optional (an absent one is its default) and an unknown key is refused; a duration
 /// is a number with an optional unit (`30`, `250ms`, `1.5h`). The type is `coqui_builder::Describe`:
-/// a `Partial` fills it, and its setters are [`StreamChannelSettingsSetters`]. It is
+/// a `Partial` fills it, and its setters are methods of [`StreamChannelBuilder`], and [`StreamChannelSettingsSetters`] for a builder elsewhere. It is
 /// `#[non_exhaustive]`: start from [`Default`] and assign the fields.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Describe)]
 #[map(deny_unknown_fields)]
+#[builder(setters_on = <C: Codec, S: AsyncRead + AsyncWrite + Send + 'static> StreamChannelBuilder<C, S>)]
 #[non_exhaustive]
 pub struct StreamChannelSettings {
     /// The largest message, both ways, until a `set_max_` call changes it. Default
@@ -456,8 +457,8 @@ impl Default for StreamChannelSettings {
 }
 
 /// What a [`StreamChannelBuilder`] holds: the settings, the codec that frames the messages and the
-/// stream they travel on. Build with `StreamChannelBuilder::new()`, set the limits through
-/// [`StreamChannelSettingsSetters`] (or `fill`), give `codec` and `stream`, then `build`.
+/// stream they travel on. Build with `StreamChannelBuilder::new()`, set the limits through its
+/// setters (or `fill`), give `codec` and `stream`, then `build`.
 ///
 /// `build` splits the stream into a reading and a writing half and does no I/O. The builder's
 /// `non_defaults()` lists the settings that differ from their defaults.

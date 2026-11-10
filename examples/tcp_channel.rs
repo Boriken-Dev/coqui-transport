@@ -8,10 +8,7 @@ use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use std::time::Duration;
 
 use coqui_transport::frame::LengthPrefix;
-use coqui_transport::{
-    Channel, Failure, Listener, StreamChannel, StreamChannelBuilder, StreamChannelSettingsSetters,
-    tcp,
-};
+use coqui_transport::{Channel, Failure, Listener, StreamChannel, StreamChannelBuilder, tcp};
 
 const WAIT: Option<Duration> = Some(Duration::from_secs(5));
 
@@ -35,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stream = tcp::Connector::new([address]).connect(Duration::from_secs(5))?;
     let channel = StreamChannelBuilder::new()
         .codec(LengthPrefix::u32_be())
-        .max_message(64usize * 1024)
+        .max_message(64 * 1024)
         .stream(stream)
         .build()?;
     for message in [&b"hello"[..], &[0; 1000][..], b""] {

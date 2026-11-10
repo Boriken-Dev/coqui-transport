@@ -9,8 +9,7 @@ use std::time::{Duration, Instant};
 
 use coqui_transport::frame::{Codec, LengthPrefix};
 use coqui_transport::{
-    Channel, Connector, Failure, Listener, Split, StreamChannel, StreamChannelBuilder,
-    StreamChannelSettingsSetters, tcp,
+    Channel, Connector, Failure, Listener, Split, StreamChannel, StreamChannelBuilder, tcp,
 };
 use support::WAIT;
 
@@ -70,7 +69,7 @@ fn closing_while_the_peer_still_sends_loses_nothing_this_side_sent() {
     let address = listener.local_addr().unwrap();
     let client = StreamChannelBuilder::new()
         .codec(LengthPrefix::u32_be())
-        .pending(1usize)
+        .pending(1)
         .stream(TcpStream::connect(address).unwrap())
         .build()
         .unwrap();

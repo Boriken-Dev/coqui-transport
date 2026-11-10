@@ -6,9 +6,7 @@ mod support;
 use std::io::{Read, Write};
 
 use coqui_transport::frame::{Codec, Decode, FrameError, LengthPrefix};
-use coqui_transport::{
-    Channel, Failure, StreamChannelBuilder, StreamChannelSettingsSetters, memory,
-};
+use coqui_transport::{Channel, Failure, StreamChannelBuilder, memory};
 use support::{WAIT, decode_cases, encode_cases, presets};
 
 #[test]

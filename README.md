@@ -77,13 +77,13 @@ assert_eq!(server.join().unwrap()?, Some(b"hello".to_vec()));
 Limits are settings with finite defaults, and a message over a bound is refused, not truncated:
 
 ```rust
-use coqui_transport::{Channel, Failure, StreamChannel, StreamChannelBuilder, StreamChannelSettingsSetters};
+use coqui_transport::{Channel, Failure, StreamChannel, StreamChannelBuilder};
 use coqui_transport::frame::LengthPrefix;
 use coqui_transport::memory;
 
 let (one, other) = memory::pipe(4096);
 let codec = LengthPrefix::u32_le().refuse_empty();
-let small = StreamChannelBuilder::new().codec(codec).max_message(8usize).stream(one).build()?;
+let small = StreamChannelBuilder::new().codec(codec).max_message(8).stream(one).build()?;
 let _other = StreamChannel::start(other, codec)?;
 assert_eq!(small.send(b"a message too long"), Err(Failure::Protocol));
 // This codec refuses empty messages.

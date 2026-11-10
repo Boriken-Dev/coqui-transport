@@ -34,5 +34,10 @@ pub use failure::Failure;
 pub use stream::{Duplex, Halves, Interrupt, Split};
 pub use stream_channel::{
     StreamChannel, StreamChannelBuilder, StreamChannelParts, StreamChannelSettings,
-    StreamChannelSettingsSetters,
 };
+
+/// The setters trait of a settings type, for a builder in another crate that holds the settings. A
+/// [`StreamChannelBuilder`] needs no import.
+pub mod prelude {
+    pub use crate::stream_channel::StreamChannelSettingsSetters;
+}

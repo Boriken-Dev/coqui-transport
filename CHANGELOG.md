@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   (`allow_empty`, the constructors' state) or refused (`refuse_empty`). No project's framing is
   in the crate; a protocol defines its own as a preset of `LengthPrefix`.
 - `StreamChannelSettings` (and `asynch::StreamChannelSettings`): the builders' limits as a `coqui_builder::Describe` type a file
-  fills (a `Partial` of it, with coqui-builder's `serde` feature), set by the `StreamChannelSettingsSetters` trait, with
+  fills (a `Partial` of it, with coqui-builder's `serde` feature), set by methods of the builders (and by `prelude::StreamChannelSettingsSetters` for a builder elsewhere), with
   `non_defaults()` named by key path. `Capabilities` sets by `carrier`, `limits` and `datagrams`, and `Halves` by
   `interrupt`. coqui-builder is a dependency; nothing else is.
 - `StreamChannel`, `StreamChannelParts` and `StreamChannelBuilder`: a `Channel` over any `Split` stream, with settings
@@ -49,8 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The stream channel builders are derived by coqui-builder from `StreamChannelParts<C, S>` (the settings, the `codec` and
   the `stream` as inputs): `StreamChannelBuilder::new().codec(c).max_message(1024usize).stream(s).build()`, which
   gives `Result<StreamChannel, BuildError<io::Error>>`, and for `asynch` `Result<StreamChannel, Missing>`. The
-  limits' setters take `impl Into<..>` and come from `StreamChannelSettingsSetters`, which the caller imports; an integer
-  literal needs a suffix. `fill(Partial<..>)` and `fill_from(source)` layer settings, and `parts()` gives the parts.
+  limits' setters are inherent methods of the builder (an integer setting takes `usize`, a duration `impl Into<Duration>`),
+  also as `prelude::StreamChannelSettingsSetters` (`asynch::prelude` for the async one). `fill(Partial<..>)` and `fill_from(source)` layer settings, and `parts()` gives the parts.
   `StreamChannel::start(stream, codec)` and `asynch::StreamChannel::new(stream, codec)` stay.
 - `NonDefault` is `coqui_builder::NonDefault`: `value` and `default` are `Shown`, printed as the type and its text
   (`usize(6)`, `Duration(31s)`) where they were plain text (`6`, `[31,0]`).

@@ -8,7 +8,6 @@ use std::time::Duration;
 
 use coqui_transport::asynch::{
     AsyncChannel, AsyncConnector, AsyncListener, StreamChannel, StreamChannelBuilder,
-    StreamChannelSettingsSetters,
 };
 use coqui_transport::frame::{Codec, LengthPrefix};
 use coqui_transport::{Carrier, Duplex, Failure, NonDefault, tcp};
@@ -257,7 +256,7 @@ async fn a_header_above_the_bound_ends_the_channel_both_ways() {
     let (mine, mut theirs) = duplex(4096);
     let channel = StreamChannelBuilder::new()
         .codec(LengthPrefix::u32_be())
-        .max_message(10usize)
+        .max_message(10)
         .stream(mine)
         .build()
         .unwrap();
@@ -371,7 +370,7 @@ async fn a_staged_bound_takes_effect_by_position_and_limits_are_reported() {
     let (one, other) = duplex(4096);
     let one = StreamChannelBuilder::new()
         .codec(LengthPrefix::u32_be())
-        .max_message(10usize)
+        .max_message(10)
         .stream(one)
         .build()
         .unwrap();

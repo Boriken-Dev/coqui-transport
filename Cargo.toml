@@ -26,14 +26,14 @@ tokio = ["dep:tokio"]
 
 [dependencies]
 # Describes, fills and builds the stream channel's settings and its builder; alpha, by revision, as the family pins it.
-coqui-builder = { git = "https://github.com/Boriken-Dev/coqui-builder", rev = "14aca5d74ef435543f9258dd0a29fab7bb596eab", features = ["derive"] }
+coqui-builder = { git = "https://github.com/Boriken-Dev/coqui-builder", rev = "c1875f8276bd6366c38e9133fdb1181a0ffbaaad", features = ["derive"] }
 # Async I/O, behind `tokio`: `io-util` for split halves and read/write calls, `net` for TCP, `sync` for the locks a
 # channel's two directions take, `time` for timeouts. No runtime: the caller's runs it.
 tokio = { version = "1", default-features = false, features = ["io-util", "net", "sync", "time"], optional = true }
 
 [dev-dependencies]
 # Reads a settings type from the TOML and JSON the tests write: `Partial` deserializes with `serde`.
-coqui-builder = { git = "https://github.com/Boriken-Dev/coqui-builder", rev = "14aca5d74ef435543f9258dd0a29fab7bb596eab", features = ["derive", "serde"] }
+coqui-builder = { git = "https://github.com/Boriken-Dev/coqui-builder", rev = "c1875f8276bd6366c38e9133fdb1181a0ffbaaad", features = ["derive", "serde"] }
 serde_json = "1"
 toml = "=1.1.8"
 # Arbitrary bytes and chunkings for the decoders.

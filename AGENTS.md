@@ -6,13 +6,13 @@ with the source at <https://github.com/Boriken-Dev/coqui-transport>.
 
 | Feature | Adds | Needed for | Default |
 | --- | --- | --- | --- |
-| `tokio` | `asynch::{AsyncChannel, AsyncConnector, AsyncListener, BoxFuture, StreamChannel, StreamChannelBuilder, StreamChannelParts, StreamChannelSettings, StreamChannelSettingsSetters}`, `Duplex` as `AsyncRead`/`AsyncWrite`, `AsyncConnector for tcp::Connector`, `AsyncListener for tokio::net::TcpListener`; on `tokio` with `io-util`, `net`, `sync`, `time` | async transports | off |
+| `tokio` | `asynch::{AsyncChannel, AsyncConnector, AsyncListener, BoxFuture, StreamChannel, StreamChannelBuilder, StreamChannelParts, StreamChannelSettings}`, `asynch::prelude::StreamChannelSettingsSetters`, `Duplex` as `AsyncRead`/`AsyncWrite`, `AsyncConnector for tcp::Connector`, `AsyncListener for tokio::net::TcpListener`; on `tokio` with `io-util`, `net`, `sync`, `time` | async transports | off |
 
 MSRV Rust 1.89. A default build depends on `coqui-builder` (by revision, with its `derive` feature: the settings types' description, fill, setters and builders, and `NonDefault`) and nothing beyond `std`. Version `0.0.0-alpha.0`, not published; the API may change in
 any release before 1.0. The default build compiles for `wasm32-unknown-unknown`; `--features tokio` does not (tokio's `net`).
 
 Imports: the root holds `Channel`, `Datagrams`, `Delivery`, `Failure`, `Capabilities`, `Carrier`, `Connector`, `Listener`, `NonDefault`,
-`Duplex`, `Halves`, `Interrupt`, `Split`, `StreamChannel`, `StreamChannelBuilder`, `StreamChannelParts`, `StreamChannelSettings`, `StreamChannelSettingsSetters`. Public modules: `frame`, `memory`, `stdio`,
+`Duplex`, `Halves`, `Interrupt`, `Split`, `StreamChannel`, `StreamChannelBuilder`, `StreamChannelParts`, `StreamChannelSettings`. Public modules: `prelude`, `frame`, `memory`, `stdio`,
 `tcp`, `asynch` (feature `tokio`).
 
 No `unsafe` code (`#![forbid(unsafe_code)]`). No process-wide state. The library prints nothing and starts no runtime; the only
@@ -188,24 +188,23 @@ impl StreamChannel {
     pub fn start<S: Split, C: Codec>(stream: S, codec: C) -> io::Result<Self>;   // default settings
 }
 // Derived by coqui_builder::Builder from StreamChannelParts<C: Codec, S: Split> (settings + inputs `codec`, `stream`).
-// Not Clone. Import StreamChannelSettingsSetters for the limits' setters.
+// Not Clone. The limits' setters are its inherent methods (`setters_on`): no import.
 impl<C: Codec, S: Split> StreamChannelBuilder<C, S> {
     pub fn new() -> Self;                                         // also Default
     pub fn codec(self, codec: C) -> Self; pub fn stream(self, stream: S) -> Self;   // both required
+    pub fn max_message(self, bytes: usize) -> Self; pub fn pending(self, messages: usize) -> Self;   // 0 is 1
+    pub fn queued_bytes(self, bytes: usize) -> Self;             // each message counts its frame + 64
+    pub fn send_limit(self, limit: impl Into<Duration>) -> Self; pub fn read_buffer(self, bytes: usize) -> Self;   // 0 is 1
+    pub fn linger(self, quiet: impl Into<Duration>) -> Self;     // close's wait for the peer's end
     pub fn fill(self, settings: Partial<StreamChannelSettings>) -> Self;            // only the keys set; the last write wins
     pub fn fill_from(self, source: &mut impl Source) -> Result<Self, FillError>;
     pub fn non_defaults(&self) -> Vec<NonDefault>;                // every setting that differs from its default, by key path
     pub fn parts(self) -> Result<StreamChannelParts<C, S>, Missing>;
     pub fn build(self) -> Result<StreamChannel, BuildError<io::Error>>;   // splits, starts two threads; Missing names every unset key and input
 }
-// StreamChannelSettingsSetters, on every builder holding the settings: one `fn key(self, impl Into<Type>) -> Self` per key
-// (an integer literal needs a suffix: `.max_message(8usize)`).
-pub trait StreamChannelSettingsSetters: Sized {
-    fn max_message(self, bytes: impl Into<usize>) -> Self; fn pending(self, messages: impl Into<usize>) -> Self;   // 0 is 1
-    fn queued_bytes(self, bytes: impl Into<usize>) -> Self;      // each message counts its frame + 64
-    fn send_limit(self, limit: impl Into<Duration>) -> Self; fn read_buffer(self, bytes: impl Into<usize>) -> Self;   // 0 is 1
-    fn linger(self, quiet: impl Into<Duration>) -> Self;         // close's wait for the peer's end
-}
+// prelude::StreamChannelSettingsSetters: the same setters as a trait over any `Holds<StreamChannelSettings>`, for a builder in
+// another crate (an integer setting takes `usize` itself, a duration `impl Into<Duration>`).
+pub trait StreamChannelSettingsSetters: Sized { /* the five setters above, by the same names */ }
 impl Channel for StreamChannel; impl Drop for StreamChannel;     // drop closes
 // coqui_builder::Describe: every key optional, unknown keys refused, a duration is a number with an optional unit (`30`, `250ms`, `1.5h`).
 // Read from text with `Partial<StreamChannelSettings>` (feature `serde` of coqui-builder), then `build()`.
@@ -303,7 +302,7 @@ impl<C, S> StreamChannelBuilder<C, S> {
     pub fn parts(self) -> Result<asynch::StreamChannelParts<C, S>, Missing>;
     pub fn build(self) -> Result<StreamChannel, Missing>;         // no I/O
 }
-// asynch::StreamChannelSettingsSetters: max_message, send_limit, read_buffer, as for the sync settings.
+// asynch::StreamChannelBuilder has inherent max_message, send_limit and read_buffer; asynch::prelude::StreamChannelSettingsSetters is the trait, as for the sync settings.
 #[non_exhaustive] pub struct asynch::StreamChannelSettings { pub max_message: usize, pub send_limit: Duration, pub read_buffer: usize }   // Describe, as above
 impl AsyncChannel for asynch::StreamChannel;
 ```

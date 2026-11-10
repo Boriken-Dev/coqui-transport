@@ -8,7 +8,7 @@ use coqui_transport::frame::LengthPrefix;
 use coqui_transport::memory;
 use coqui_transport::{
     Capabilities, Carrier, Delivery, Halves, Interrupt, NonDefault, StreamChannel,
-    StreamChannelBuilder, StreamChannelSettings, StreamChannelSettingsSetters,
+    StreamChannelBuilder, StreamChannelSettings,
 };
 
 type Builder = StreamChannelBuilder<LengthPrefix, memory::Stream>;
@@ -46,11 +46,11 @@ fn from_json(text: &str) -> Result<StreamChannelSettings, String> {
 #[test]
 fn every_setter_reaches_the_settings_the_builder_reports() {
     let found = builder()
-        .max_message(10usize)
-        .pending(11usize)
-        .queued_bytes(12usize)
+        .max_message(10)
+        .pending(11)
+        .queued_bytes(12)
         .send_limit(Duration::from_secs(13))
-        .read_buffer(14usize)
+        .read_buffer(14)
         .linger(Duration::from_secs(15))
         .non_defaults();
     let by_key: Vec<(String, String)> = lines(&found)
@@ -75,9 +75,9 @@ fn fill_takes_the_whole_and_the_last_setter_wins() {
     let mut whole = StreamChannelSettings::default();
     whole.pending = 5;
     let found = builder()
-        .max_message(1usize)
+        .max_message(1)
         .fill(Partial::from(whole))
-        .pending(6usize)
+        .pending(6)
         .non_defaults();
     assert_eq!(
         lines(&found),

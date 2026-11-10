@@ -18,8 +18,13 @@ use core::time::Duration;
 
 pub use stream_channel::{
     StreamChannel, StreamChannelBuilder, StreamChannelParts, StreamChannelSettings,
-    StreamChannelSettingsSetters,
 };
+
+/// The setters trait of the async settings type, for a builder in another crate that holds the
+/// settings. A [`StreamChannelBuilder`] needs no import.
+pub mod prelude {
+    pub use super::stream_channel::StreamChannelSettingsSetters;
+}
 
 use crate::capabilities::Capabilities;
 use crate::failure::Failure;

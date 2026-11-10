@@ -1,6 +1,11 @@
 pub mod coqui_transport
 pub use coqui_transport::NonDefault
 pub mod coqui_transport::asynch
+pub mod coqui_transport::asynch::prelude
+pub trait coqui_transport::asynch::prelude::StreamChannelSettingsSetters: coqui_builder::builder::Holds<coqui_transport::asynch::StreamChannelSettings> + core::marker::Sized
+pub fn coqui_transport::asynch::prelude::StreamChannelSettingsSetters::max_message(self, usize) -> Self
+pub fn coqui_transport::asynch::prelude::StreamChannelSettingsSetters::read_buffer(self, usize) -> Self
+pub fn coqui_transport::asynch::prelude::StreamChannelSettingsSetters::send_limit(self, impl core::convert::Into<core::time::Duration>) -> Self
 pub struct coqui_transport::asynch::StreamChannel
 impl coqui_transport::asynch::StreamChannel
 pub const coqui_transport::asynch::StreamChannel::DEFAULT_MAX_MESSAGE: usize
@@ -82,10 +87,6 @@ impl coqui_transport::asynch::AsyncListener for tokio::net::tcp::listener::TcpLi
 pub type tokio::net::tcp::listener::TcpListener::Connection = tokio::net::tcp::stream::TcpStream
 pub type tokio::net::tcp::listener::TcpListener::Error = core::io::error::Error
 pub fn tokio::net::tcp::listener::TcpListener::accept(&self) -> coqui_transport::asynch::BoxFuture<'_, core::io::error::Result<tokio::net::tcp::stream::TcpStream>>
-pub trait coqui_transport::asynch::StreamChannelSettingsSetters: coqui_builder::builder::Holds<coqui_transport::asynch::StreamChannelSettings> + core::marker::Sized
-pub fn coqui_transport::asynch::StreamChannelSettingsSetters::max_message(self, impl core::convert::Into<usize>) -> Self
-pub fn coqui_transport::asynch::StreamChannelSettingsSetters::read_buffer(self, impl core::convert::Into<usize>) -> Self
-pub fn coqui_transport::asynch::StreamChannelSettingsSetters::send_limit(self, impl core::convert::Into<core::time::Duration>) -> Self
 pub type coqui_transport::asynch::BoxFuture<'a, T> = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = T> + core::marker::Send + 'a)>>
 pub mod coqui_transport::frame
 #[non_exhaustive] pub enum coqui_transport::frame::FrameError
@@ -162,6 +163,14 @@ pub fn coqui_transport::memory::WriteHalf::write(&mut self, &[u8]) -> core::io::
 impl core::ops::drop::Drop for coqui_transport::memory::WriteHalf
 pub fn coqui_transport::memory::WriteHalf::drop(&mut self)
 pub fn coqui_transport::memory::pipe(usize) -> (coqui_transport::memory::Stream, coqui_transport::memory::Stream)
+pub mod coqui_transport::prelude
+pub trait coqui_transport::prelude::StreamChannelSettingsSetters: coqui_builder::builder::Holds<coqui_transport::StreamChannelSettings> + core::marker::Sized
+pub fn coqui_transport::prelude::StreamChannelSettingsSetters::linger(self, impl core::convert::Into<core::time::Duration>) -> Self
+pub fn coqui_transport::prelude::StreamChannelSettingsSetters::max_message(self, usize) -> Self
+pub fn coqui_transport::prelude::StreamChannelSettingsSetters::pending(self, usize) -> Self
+pub fn coqui_transport::prelude::StreamChannelSettingsSetters::queued_bytes(self, usize) -> Self
+pub fn coqui_transport::prelude::StreamChannelSettingsSetters::read_buffer(self, usize) -> Self
+pub fn coqui_transport::prelude::StreamChannelSettingsSetters::send_limit(self, impl core::convert::Into<core::time::Duration>) -> Self
 pub mod coqui_transport::stdio
 pub fn coqui_transport::stdio::current() -> coqui_transport::Duplex<std::io::stdio::Stdin, std::io::stdio::Stdout>
 pub mod coqui_transport::tcp
@@ -410,10 +419,3 @@ impl<R, W> coqui_transport::Split for coqui_transport::Halves<R, W> where R: all
 pub type coqui_transport::Halves<R, W>::Reader = R
 pub type coqui_transport::Halves<R, W>::Writer = W
 pub fn coqui_transport::Halves<R, W>::split(self) -> core::io::error::Result<Self>
-pub trait coqui_transport::StreamChannelSettingsSetters: coqui_builder::builder::Holds<coqui_transport::StreamChannelSettings> + core::marker::Sized
-pub fn coqui_transport::StreamChannelSettingsSetters::linger(self, impl core::convert::Into<core::time::Duration>) -> Self
-pub fn coqui_transport::StreamChannelSettingsSetters::max_message(self, impl core::convert::Into<usize>) -> Self
-pub fn coqui_transport::StreamChannelSettingsSetters::pending(self, impl core::convert::Into<usize>) -> Self
-pub fn coqui_transport::StreamChannelSettingsSetters::queued_bytes(self, impl core::convert::Into<usize>) -> Self
-pub fn coqui_transport::StreamChannelSettingsSetters::read_buffer(self, impl core::convert::Into<usize>) -> Self
-pub fn coqui_transport::StreamChannelSettingsSetters::send_limit(self, impl core::convert::Into<core::time::Duration>) -> Self
