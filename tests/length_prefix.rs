@@ -6,7 +6,9 @@ mod support;
 use std::io::{Read, Write};
 
 use coqui_transport::frame::{Codec, Decode, FrameError, LengthPrefix};
-use coqui_transport::{Channel, Failure, StreamChannel, memory};
+use coqui_transport::{
+    Channel, Failure, StreamChannelBuilder, StreamChannelSettingsSetters, memory,
+};
 use support::{WAIT, decode_cases, encode_cases, presets};
 
 #[test]
@@ -93,9 +95,11 @@ fn a_channel_puts_the_frame_on_the_stream_and_refuses_what_the_codec_refuses() {
         for case in encode_cases(&preset) {
             let label = format!("{}: {}", preset.name, case.name);
             let (mine, theirs) = memory::pipe(1 << 17);
-            let channel = StreamChannel::builder(preset.codec)
+            let channel = StreamChannelBuilder::new()
+                .codec(preset.codec)
                 .max_message(case.max)
-                .start(mine)
+                .stream(mine)
+                .build()
                 .unwrap();
             let sent = channel.send(&case.body);
             channel.close();
@@ -122,9 +126,11 @@ fn a_channel_takes_the_messages_then_the_end_the_case_says() {
         for case in decode_cases(&preset) {
             let label = format!("{}: {}", preset.name, case.name);
             let (mine, theirs) = memory::pipe(1 << 17);
-            let channel = StreamChannel::builder(preset.codec)
+            let channel = StreamChannelBuilder::new()
+                .codec(preset.codec)
                 .max_message(case.max)
-                .start(mine)
+                .stream(mine)
+                .build()
                 .unwrap();
             let (_reader, mut writer) = theirs.into_halves();
             for chunk in &case.chunks {

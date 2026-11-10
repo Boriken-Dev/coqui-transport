@@ -11,13 +11,14 @@ use std::io;
 use std::sync::Mutex;
 use std::thread::JoinHandle;
 
+use coqui_builder::{Builder, Describe, NonDefault};
+
 use self::shared::{End, Exit, FRAME_COST, READER, Shared, WRITER};
 use crate::capabilities::{Capabilities, Carrier};
 use crate::channel::Channel;
 use crate::deadline;
 use crate::failure::Failure;
 use crate::frame::{Codec, DEFAULT_MAX_MESSAGE, FrameError};
-use crate::non_default::NonDefault;
 use crate::stream::Split;
 use crate::sync::{locked, wait_until};
 
@@ -28,7 +29,7 @@ use crate::sync::{locked, wait_until};
 /// authenticated: run the peer's proof on it before anything else.
 ///
 /// **Reading.** A reader thread of its own reads the stream, decodes it incrementally and holds up
-/// to [`pending`](StreamChannelBuilder::pending) messages for `receive`; past that it reads nothing,
+/// to [`pending`](StreamChannelSettings::pending) messages for `receive`; past that it reads nothing,
 /// so a slow reader holds the peer's sends back. Each message is judged by the receive bound for its
 /// position ([`Channel::set_max_receive_after`]). A header over the bound ends the channel with
 /// [`Failure::Protocol`] before any of its body is read, and the stream is ended so the peer sees
@@ -39,8 +40,8 @@ use crate::sync::{locked, wait_until};
 /// [`Failure::Protocol`], and the channel goes on), then queues it for a writer thread of its own,
 /// which writes every frame whole however the stream splits the writes, and flushes when the queue
 /// empties. A queued message is not taken back; one refused for want of room was not sent. Queued
-/// bytes are bounded by [`queued_bytes`](StreamChannelBuilder::queued_bytes). A frame the stream
-/// takes nothing of for the [`send_limit`](StreamChannelBuilder::send_limit) ends the channel with
+/// bytes are bounded by [`queued_bytes`](StreamChannelSettings::queued_bytes). A frame the stream
+/// takes nothing of for the [`send_limit`](StreamChannelSettings::send_limit) ends the channel with
 /// [`Failure::NoProgress`], seen by the next call that waits on the writer, or by the writer itself
 /// on a stream with a write timeout.
 ///
@@ -54,7 +55,7 @@ use crate::sync::{locked, wait_until};
 /// **Closing.** `close`, which dropping also does, refuses further sends and waits up to the send
 /// limit for what is queued to be written; the writer half is then dropped, so the peer reads the
 /// end. Until the peer ends its side too, or has sent nothing for the
-/// [`linger`](StreamChannelBuilder::linger), the reader discards what still arrives, since a socket
+/// [`linger`](StreamChannelSettings::linger), the reader discards what still arrives, since a socket
 /// ended with bytes unread is reset and its peer loses what was sent last. Then the stream's
 /// [`Interrupt`](crate::Interrupt) wakes a blocked read, and both
 /// threads are joined, each waited for at most the send limit. Messages already read stay
@@ -93,21 +94,13 @@ impl StreamChannel {
     /// The default time closing waits, after the peer last sent anything, for its end: 500 ms.
     pub const DEFAULT_LINGER: Duration = Duration::from_millis(500);
 
-    /// A builder for a channel framed by `codec`, with every setting at its default.
-    pub const fn builder<C: Codec>(codec: C) -> StreamChannelBuilder<C> {
-        StreamChannelBuilder {
-            codec,
-            settings: StreamChannelSettings::new(),
-        }
-    }
-
     /// Starts a channel on `stream`, framed by `codec`, with the default settings.
     ///
     /// # Errors
     ///
-    /// As [`StreamChannelBuilder::start`].
+    /// As [`StreamChannelBuilder::build`].
     pub fn start<S: Split, C: Codec>(stream: S, codec: C) -> io::Result<Self> {
-        Self::builder(codec).start(stream)
+        Self::launch(stream, codec, StreamChannelSettings::new())
     }
 
     /// Waits for the reader to see the peer's end, while it discards what the peer still sends:
@@ -159,18 +152,16 @@ impl fmt::Debug for StreamChannel {
     }
 }
 
-/// What a [`StreamChannelBuilder`] takes whole through `settings`, in the form a file, a form or a
+/// What a [`StreamChannelBuilder`] takes whole through `fill`, in the form a file, a form or a
 /// peer fills.
 ///
 /// Every limit is a setting with a finite default; none has a floor beyond what makes it mean
 /// anything (a read-ahead of 0 and a read buffer of 0 are 1). Every key is optional (an absent one is
-/// its default) and an unknown key is refused; a duration is a number of seconds, `[secs, nanos]` or
-/// `{secs, nanos}`. The type is a guatiao value (`from_value`, `to_value`, `schema`), and
-/// `guatiao_serde::text` reads and writes its text. It is `#[non_exhaustive]`: start from
-/// [`Default`] and assign the fields.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, guatiao::ToValue, guatiao::FromValue, guatiao::Schema,
-)]
+/// its default) and an unknown key is refused; a duration is a number with an optional unit
+/// (`30`, `250ms`, `1.5h`). The type is `coqui_builder::Describe`: a `Partial` fills it, and its
+/// setters are [`StreamChannelSettingsSetters`]. It is `#[non_exhaustive]`: start from [`Default`]
+/// and assign the fields.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Describe)]
 #[map(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct StreamChannelSettings {
@@ -220,7 +211,7 @@ impl StreamChannelSettings {
     /// Every setting that differs from its default, named by key path.
     #[must_use]
     pub fn non_defaults(&self) -> Vec<NonDefault> {
-        NonDefault::of_settings(self)
+        coqui_builder::non_defaults(self)
     }
 }
 
@@ -230,85 +221,48 @@ impl Default for StreamChannelSettings {
     }
 }
 
-/// Builds a [`StreamChannel`]: [`StreamChannel::builder`], the settings, then
-/// [`start`](Self::start).
+/// What a [`StreamChannelBuilder`] holds: the settings, the codec that frames the messages and the
+/// stream they travel on. Build with `StreamChannelBuilder::new()`, set the limits through
+/// [`StreamChannelSettingsSetters`] (or `fill`), give `codec` and `stream`, then `build`.
 ///
-/// [`non_defaults`](Self::non_defaults) lists the settings that differ from their defaults.
-#[derive(Clone, Debug)]
-#[must_use]
-pub struct StreamChannelBuilder<C> {
-    codec: C,
+/// `build` splits the stream, then starts the reader thread and the writer thread, which the
+/// channel owns and joins when closed. It fails with [`BuildError::Failed`] when the stream cannot
+/// be split or a thread cannot be started, as on a target with no threads. The builder's
+/// `non_defaults()` lists the settings that differ from their defaults.
+///
+/// [`BuildError::Failed`]: coqui_builder::builder::BuildError::Failed
+#[derive(Builder, Debug)]
+#[builder(build = StreamChannel, fallible, entry = "new")]
+pub struct StreamChannelParts<C: Codec, S: Split> {
     settings: StreamChannelSettings,
+    #[builder(input)]
+    codec: C,
+    #[builder(input)]
+    stream: S,
 }
 
-impl<C: Codec> StreamChannelBuilder<C> {
-    /// The largest message, both ways; see [`StreamChannelSettings::max_message`].
-    pub const fn max_message(mut self, bytes: usize) -> Self {
-        self.settings.max_message = bytes;
-        self
-    }
+impl<C: Codec, S: Split> TryFrom<StreamChannelParts<C, S>> for StreamChannel {
+    type Error = io::Error;
 
-    /// How many messages the reader holds ahead of `receive`; see
-    /// [`StreamChannelSettings::pending`].
-    pub const fn pending(mut self, messages: usize) -> Self {
-        self.settings.pending = messages;
-        self
+    fn try_from(parts: StreamChannelParts<C, S>) -> io::Result<Self> {
+        Self::launch(parts.stream, parts.codec, parts.settings)
     }
+}
 
-    /// The most bytes queued to send; see [`StreamChannelSettings::queued_bytes`].
-    pub const fn queued_bytes(mut self, bytes: usize) -> Self {
-        self.settings.queued_bytes = bytes;
-        self
-    }
-
-    /// How long a frame being written may go with the stream taking none of it; see
-    /// [`StreamChannelSettings::send_limit`].
-    pub const fn send_limit(mut self, limit: Duration) -> Self {
-        self.settings.send_limit = limit;
-        self
-    }
-
-    /// The most bytes one read takes from the stream; see [`StreamChannelSettings::read_buffer`].
-    pub const fn read_buffer(mut self, bytes: usize) -> Self {
-        self.settings.read_buffer = bytes;
-        self
-    }
-
-    /// How long `close` waits for the peer's end; see [`StreamChannelSettings::linger`].
-    pub const fn linger(mut self, quiet: Duration) -> Self {
-        self.settings.linger = quiet;
-        self
-    }
-
-    /// Every limit from `settings`. Replaces what the limit setters set before, and is replaced by
-    /// what they set after it. The codec is an argument, not a setting, and stays.
-    pub const fn settings(mut self, settings: StreamChannelSettings) -> Self {
-        self.settings = settings;
-        self
-    }
-
-    /// Every setting that differs from its default, with each value and its default, named by key
-    /// path.
-    #[must_use]
-    pub fn non_defaults(&self) -> Vec<NonDefault> {
-        self.settings.non_defaults()
-    }
-
-    /// Starts the channel on `stream`: splits it, then starts the reader thread and the writer
-    /// thread, which the channel owns and joins when closed.
-    ///
-    /// # Errors
-    ///
-    /// When the stream cannot be split or a thread cannot be started, as on a target with no
-    /// threads.
-    pub fn start<S: Split>(self, stream: S) -> io::Result<StreamChannel> {
+impl StreamChannel {
+    /// Splits `stream` and starts the reader thread and the writer thread.
+    fn launch<S: Split, C: Codec>(
+        stream: S,
+        codec: C,
+        settings: StreamChannelSettings,
+    ) -> io::Result<Self> {
         let halves = stream.split()?;
         let shared = Arc::new(Shared::new(
-            self.settings.max_message,
-            self.settings.pending,
-            self.settings.queued_bytes,
-            self.settings.send_limit,
-            self.settings.linger,
+            settings.max_message,
+            settings.pending,
+            settings.queued_bytes,
+            settings.send_limit,
+            settings.linger,
             halves.interrupt,
         ));
         let mut writer = halves.writer;
@@ -325,8 +279,8 @@ impl<C: Codec> StreamChannelBuilder<C> {
                 drop(writer);
             })?;
         let mut reader = halves.reader;
-        let mut decoder = self.codec.decoder(self.settings.max_message);
-        let chunk = self.settings.read_buffer;
+        let mut decoder = codec.decoder(settings.max_message);
+        let chunk = settings.read_buffer;
         let reading = Arc::clone(&shared);
         let reader = std::thread::Builder::new()
             .name("coqui-transport reader".into())
@@ -348,7 +302,7 @@ impl<C: Codec> StreamChannelBuilder<C> {
         };
         Ok(StreamChannel {
             shared,
-            encoder: Box::new(self.codec),
+            encoder: Box::new(codec),
             reader: Mutex::new(Some(reader)),
             writer: Mutex::new(Some(writer)),
         })

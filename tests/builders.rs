@@ -3,97 +3,126 @@
 
 use std::time::Duration;
 
+use coqui_builder::Partial;
 use coqui_transport::frame::LengthPrefix;
+use coqui_transport::memory;
 use coqui_transport::{
     Capabilities, Carrier, Delivery, Halves, Interrupt, NonDefault, StreamChannel,
-    StreamChannelSettings,
+    StreamChannelBuilder, StreamChannelSettings, StreamChannelSettingsSetters,
 };
-use guatiao_serde::Presentation;
-use guatiao_serde::text::{json, toml};
 
-fn plain() -> Presentation {
-    Presentation::new()
+type Builder = StreamChannelBuilder<LengthPrefix, memory::Stream>;
+
+fn builder() -> Builder {
+    StreamChannelBuilder::new().codec(LengthPrefix::u32_be())
+}
+
+/// The setting, value and default of each line, as text.
+fn lines(found: &[NonDefault]) -> Vec<(String, String, String)> {
+    found
+        .iter()
+        .map(|n| {
+            (
+                n.setting.clone(),
+                n.value.to_string(),
+                n.default.to_string(),
+            )
+        })
+        .collect()
+}
+
+fn from_toml(text: &str) -> Result<StreamChannelSettings, String> {
+    let partial =
+        toml::from_str::<Partial<StreamChannelSettings>>(text).map_err(|e| e.to_string())?;
+    partial.build().map_err(|e| e.to_string())
+}
+
+fn from_json(text: &str) -> Result<StreamChannelSettings, String> {
+    let partial =
+        serde_json::from_str::<Partial<StreamChannelSettings>>(text).map_err(|e| e.to_string())?;
+    partial.build().map_err(|e| e.to_string())
 }
 
 #[test]
 fn every_setter_reaches_the_settings_the_builder_reports() {
-    let found = StreamChannel::builder(LengthPrefix::u32_be())
-        .max_message(10)
-        .pending(11)
-        .queued_bytes(12)
+    let found = builder()
+        .max_message(10usize)
+        .pending(11usize)
+        .queued_bytes(12usize)
         .send_limit(Duration::from_secs(13))
-        .read_buffer(14)
+        .read_buffer(14usize)
         .linger(Duration::from_secs(15))
         .non_defaults();
-    let by_key: Vec<(&str, &str)> = found
-        .iter()
-        .map(|n| (n.setting.as_str(), n.value.as_str()))
+    let by_key: Vec<(String, String)> = lines(&found)
+        .into_iter()
+        .map(|(setting, value, _)| (setting, value))
         .collect();
-    assert_eq!(
-        by_key,
-        [
-            ("linger", "[15,0]"),
-            ("max_message", "10"),
-            ("pending", "11"),
-            ("queued_bytes", "12"),
-            ("read_buffer", "14"),
-            ("send_limit", "[13,0]"),
-        ]
-    );
+    let expected: Vec<(String, String)> = [
+        ("linger", "Duration(15s)"),
+        ("max_message", "usize(10)"),
+        ("pending", "usize(11)"),
+        ("queued_bytes", "usize(12)"),
+        ("read_buffer", "usize(14)"),
+        ("send_limit", "Duration(13s)"),
+    ]
+    .map(|(setting, value)| (setting.to_owned(), value.to_owned()))
+    .into();
+    assert_eq!(by_key, expected);
 }
 
 #[test]
-fn settings_take_the_whole_and_the_last_setter_wins() {
+fn fill_takes_the_whole_and_the_last_setter_wins() {
     let mut whole = StreamChannelSettings::default();
     whole.pending = 5;
-    let found = StreamChannel::builder(LengthPrefix::u32_be())
-        .max_message(1)
-        .settings(whole)
-        .pending(6)
+    let found = builder()
+        .max_message(1usize)
+        .fill(Partial::from(whole))
+        .pending(6usize)
         .non_defaults();
-    assert_eq!(found, [NonDefault::new("pending", "6", "64")]);
+    assert_eq!(
+        lines(&found),
+        [(
+            "pending".to_owned(),
+            "usize(6)".to_owned(),
+            "usize(64)".to_owned()
+        )]
+    );
 }
 
 #[test]
 fn the_defaults_report_nothing() {
     assert!(StreamChannelSettings::default().non_defaults().is_empty());
-    assert!(
-        StreamChannel::builder(LengthPrefix::u32_be())
-            .non_defaults()
-            .is_empty()
-    );
+    assert!(builder().non_defaults().is_empty());
 }
 
 #[test]
-fn settings_read_from_toml_and_json_and_round_trip() {
-    let settings: StreamChannelSettings =
-        toml::from_str_as("max_message = 7\nlinger = 2\n", plain()).unwrap();
+fn settings_read_from_toml_and_json() {
+    let settings = from_toml(
+        "max_message = 7
+linger = 2
+",
+    )
+    .unwrap();
     assert_eq!(settings.max_message, 7);
     assert_eq!(settings.linger, Duration::from_secs(2));
     assert_eq!(settings.pending, StreamChannel::DEFAULT_PENDING);
-    assert_eq!(
-        toml::from_str_as::<StreamChannelSettings>("", plain()).unwrap(),
-        StreamChannelSettings::default()
-    );
+    assert_eq!(from_toml("").unwrap(), StreamChannelSettings::default());
     let mut changed = StreamChannelSettings::default();
     changed.queued_bytes = 99;
     changed.send_limit = Duration::from_millis(1500);
-    let text = toml::to_string_of(&changed, plain()).unwrap();
-    assert_eq!(
-        toml::from_str_as::<StreamChannelSettings>(&text, plain()).unwrap(),
-        changed
-    );
-    let text = json::to_string_pretty_of(&changed, plain()).unwrap();
-    assert_eq!(
-        json::from_str_as::<StreamChannelSettings>(&text, plain()).unwrap(),
-        changed
-    );
+    let text = "queued_bytes = 99
+send_limit = \"1500ms\"
+";
+    assert_eq!(from_toml(text).unwrap(), changed);
+    let text = r#"{"queued_bytes": 99, "send_limit": "1500ms"}"#;
+    assert_eq!(from_json(text).unwrap(), changed);
 }
 
 #[test]
-fn settings_refuse_unknown_keys() {
-    assert!(toml::from_str_as::<StreamChannelSettings>("pendin = 1", plain()).is_err());
-    assert!(toml::from_str_as::<StreamChannelSettings>("linger = \"soon\"", plain()).is_err());
+fn settings_refuse_unknown_keys_and_unreadable_values() {
+    assert!(from_toml("pendin = 1").is_err());
+    assert!(from_toml("linger = \"soon\"").is_err());
+    assert!(from_json(r#"{"pendin": 1}"#).is_err());
 }
 
 #[test]

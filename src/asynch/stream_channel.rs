@@ -11,6 +11,7 @@ use core::time::Duration;
 use std::io;
 use std::sync::Mutex;
 
+use coqui_builder::{Builder, Describe, NonDefault};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::watch;
 
@@ -18,7 +19,6 @@ use super::{AsyncChannel, BoxFuture, within};
 use crate::capabilities::{Capabilities, Carrier};
 use crate::failure::Failure;
 use crate::frame::{Codec, DEFAULT_MAX_MESSAGE, Decode, FrameError};
-use crate::non_default::NonDefault;
 use crate::sync::locked;
 
 /// An [`AsyncChannel`] over an async byte stream, every message one frame of the [`Codec`] it was
@@ -36,7 +36,7 @@ use crate::sync::locked;
 /// **Limits.** A header over the receive bound ends the channel with [`Failure::Protocol`] before
 /// its body is read; the stream ending inside a frame is [`Failure::PathLost`], between frames the
 /// peer closing in order. A write the stream takes nothing of for the
-/// [`send_limit`](StreamChannelBuilder::send_limit) ends the channel with [`Failure::NoProgress`].
+/// [`send_limit`](StreamChannelSettings::send_limit) ends the channel with [`Failure::NoProgress`].
 ///
 /// **Closing.** `close` finishes a frame under way, shuts the writing half down (the peer reads the
 /// end) and wakes any `receive`, which then returns what is already decoded, then `Ok(None)`.
@@ -138,14 +138,6 @@ impl StreamChannel {
     /// The default size of one read from the stream: 64 KiB.
     pub const DEFAULT_READ_BUFFER: usize = 64 * 1024;
 
-    /// A builder for a channel framed by `codec`, with every setting at its default.
-    pub const fn builder<C: Codec>(codec: C) -> StreamChannelBuilder<C> {
-        StreamChannelBuilder {
-            codec,
-            settings: StreamChannelSettings::new(),
-        }
-    }
-
     /// A channel on `stream`, framed by `codec`, with the default settings. It does no I/O until
     /// called.
     pub fn new<S, C>(stream: S, codec: C) -> Self
@@ -153,7 +145,7 @@ impl StreamChannel {
         S: AsyncRead + AsyncWrite + Send + 'static,
         C: Codec,
     {
-        Self::builder(codec).build(stream)
+        Self::launch(stream, codec, StreamChannelSettings::new())
     }
 
     fn stop(&self, stop: Stop) {
@@ -414,16 +406,14 @@ impl AsyncChannel for StreamChannel {
     }
 }
 
-/// What an async [`StreamChannelBuilder`] takes whole through `settings`, in the form a file, a form
+/// What an async [`StreamChannelBuilder`] takes whole through `fill`, in the form a file, a form
 /// or a peer fills.
 ///
-/// Every key is optional (an absent one is its default) and an unknown key is refused; a duration is
-/// a number of seconds, `[secs, nanos]` or `{secs, nanos}`. The type is a guatiao value
-/// (`from_value`, `to_value`, `schema`), and `guatiao_serde::text` reads and writes its text. It is
+/// Every key is optional (an absent one is its default) and an unknown key is refused; a duration
+/// is a number with an optional unit (`30`, `250ms`, `1.5h`). The type is `coqui_builder::Describe`:
+/// a `Partial` fills it, and its setters are [`StreamChannelSettingsSetters`]. It is
 /// `#[non_exhaustive]`: start from [`Default`] and assign the fields.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, guatiao::ToValue, guatiao::FromValue, guatiao::Schema,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Describe)]
 #[map(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct StreamChannelSettings {
@@ -455,7 +445,7 @@ impl StreamChannelSettings {
     /// Every setting that differs from its default, named by key path.
     #[must_use]
     pub fn non_defaults(&self) -> Vec<NonDefault> {
-        NonDefault::of_settings(self)
+        coqui_builder::non_defaults(self)
     }
 }
 
@@ -465,61 +455,49 @@ impl Default for StreamChannelSettings {
     }
 }
 
-/// Builds an async [`StreamChannel`]: [`StreamChannel::builder`], the settings, then
-/// [`build`](Self::build).
-#[derive(Clone, Debug)]
-#[must_use]
-pub struct StreamChannelBuilder<C> {
-    codec: C,
+/// What a [`StreamChannelBuilder`] holds: the settings, the codec that frames the messages and the
+/// stream they travel on. Build with `StreamChannelBuilder::new()`, set the limits through
+/// [`StreamChannelSettingsSetters`] (or `fill`), give `codec` and `stream`, then `build`.
+///
+/// `build` splits the stream into a reading and a writing half and does no I/O. The builder's
+/// `non_defaults()` lists the settings that differ from their defaults.
+#[derive(Builder, Debug)]
+#[builder(build = StreamChannel, entry = "new")]
+pub struct StreamChannelParts<C, S>
+where
+    C: Codec,
+    S: AsyncRead + AsyncWrite + Send + 'static,
+{
     settings: StreamChannelSettings,
+    #[builder(input)]
+    codec: C,
+    #[builder(input)]
+    stream: S,
 }
 
-impl<C: Codec> StreamChannelBuilder<C> {
-    /// The largest message, both ways; see [`StreamChannelSettings::max_message`].
-    pub const fn max_message(mut self, bytes: usize) -> Self {
-        self.settings.max_message = bytes;
-        self
+impl<C, S> From<StreamChannelParts<C, S>> for StreamChannel
+where
+    C: Codec,
+    S: AsyncRead + AsyncWrite + Send + 'static,
+{
+    fn from(parts: StreamChannelParts<C, S>) -> Self {
+        Self::launch(parts.stream, parts.codec, parts.settings)
     }
+}
 
-    /// How long one write or flush may wait with the stream taking nothing; see
-    /// [`StreamChannelSettings::send_limit`].
-    pub const fn send_limit(mut self, limit: Duration) -> Self {
-        self.settings.send_limit = limit;
-        self
-    }
-
-    /// The most bytes one read takes from the stream; see [`StreamChannelSettings::read_buffer`].
-    pub const fn read_buffer(mut self, bytes: usize) -> Self {
-        self.settings.read_buffer = bytes;
-        self
-    }
-
-    /// Every limit from `settings`. Replaces what the limit setters set before, and is replaced by
-    /// what they set after it. The codec is an argument, not a setting, and stays.
-    pub const fn settings(mut self, settings: StreamChannelSettings) -> Self {
-        self.settings = settings;
-        self
-    }
-
-    /// Every setting that differs from its default, with each value and its default, named by key
-    /// path.
-    #[must_use]
-    pub fn non_defaults(&self) -> Vec<NonDefault> {
-        self.settings.non_defaults()
-    }
-
-    /// The channel on `stream`, which it splits into a reading and a writing half. It does no I/O
-    /// until called.
-    pub fn build<S>(self, stream: S) -> StreamChannel
+impl StreamChannel {
+    /// Splits `stream` into its halves and wraps them with `codec` under `settings`.
+    fn launch<S, C>(stream: S, codec: C, settings: StreamChannelSettings) -> Self
     where
         S: AsyncRead + AsyncWrite + Send + 'static,
+        C: Codec,
     {
         let (reader, writer) = tokio::io::split(stream);
-        StreamChannel {
+        Self {
             reading: tokio::sync::Mutex::new(Reading {
                 reader: Box::new(reader),
-                decoder: Box::new(self.codec.decoder(self.settings.max_message)),
-                buffer: alloc::vec![0; self.settings.read_buffer.max(1)],
+                decoder: Box::new(codec.decoder(settings.max_message)),
+                buffer: alloc::vec![0; settings.read_buffer.max(1)],
                 end: None,
             }),
             writing: tokio::sync::Mutex::new(Writing {
@@ -529,15 +507,15 @@ impl<C: Codec> StreamChannelBuilder<C> {
                 shut: false,
             }),
             bounds: Mutex::new(Bounds {
-                receive_now: self.settings.max_message,
+                receive_now: settings.max_message,
                 staged: None,
                 taken: 0,
-                max_send: self.settings.max_message,
+                max_send: settings.max_message,
             }),
             stop: watch::Sender::new(None),
             ended: AtomicBool::new(false),
-            encoder: Box::new(self.codec),
-            send_limit: self.settings.send_limit,
+            encoder: Box::new(codec),
+            send_limit: settings.send_limit,
         }
     }
 }

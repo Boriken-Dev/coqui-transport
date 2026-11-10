@@ -6,7 +6,10 @@ mod support;
 use std::sync::Arc;
 use std::time::Duration;
 
-use coqui_transport::asynch::{AsyncChannel, AsyncConnector, AsyncListener, StreamChannel};
+use coqui_transport::asynch::{
+    AsyncChannel, AsyncConnector, AsyncListener, StreamChannel, StreamChannelBuilder,
+    StreamChannelSettingsSetters,
+};
 use coqui_transport::frame::{Codec, LengthPrefix};
 use coqui_transport::{Carrier, Duplex, Failure, NonDefault, tcp};
 use support::{WAIT, decode_cases, encode_cases, presets};
@@ -112,9 +115,12 @@ async fn every_length_prefix_case_holds_through_the_async_channel() {
         for case in encode_cases(&preset) {
             let label = format!("{}: {}", preset.name, case.name);
             let (mine, mut theirs) = duplex(1 << 17);
-            let channel = StreamChannel::builder(preset.codec)
+            let channel = StreamChannelBuilder::new()
+                .codec(preset.codec)
                 .max_message(case.max)
-                .build(mine);
+                .stream(mine)
+                .build()
+                .unwrap();
             let sent = channel.send(&case.body).await;
             channel.close().await;
             let mut wire = Vec::new();
@@ -133,9 +139,12 @@ async fn every_length_prefix_case_holds_through_the_async_channel() {
         for case in decode_cases(&preset) {
             let label = format!("{}: {}", preset.name, case.name);
             let (mine, mut theirs) = duplex(1 << 17);
-            let channel = StreamChannel::builder(preset.codec)
+            let channel = StreamChannelBuilder::new()
+                .codec(preset.codec)
                 .max_message(case.max)
-                .build(mine);
+                .stream(mine)
+                .build()
+                .unwrap();
             for chunk in &case.chunks {
                 theirs.write_all(chunk).await.unwrap();
             }
@@ -246,9 +255,12 @@ async fn a_send_that_never_got_its_turn_sent_nothing() {
 #[tokio::test]
 async fn a_header_above_the_bound_ends_the_channel_both_ways() {
     let (mine, mut theirs) = duplex(4096);
-    let channel = StreamChannel::builder(LengthPrefix::u32_be())
-        .max_message(10)
-        .build(mine);
+    let channel = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
+        .max_message(10usize)
+        .stream(mine)
+        .build()
+        .unwrap();
     theirs.write_all(&frame(b"ok")).await.unwrap();
     theirs.write_all(&11_u32.to_be_bytes()).await.unwrap();
     assert_eq!(channel.receive(WAIT).await.unwrap(), Some(b"ok".to_vec()));
@@ -280,9 +292,12 @@ async fn the_stream_ending_inside_a_frame_is_lost_and_between_frames_is_orderly(
 #[tokio::test]
 async fn a_peer_that_takes_nothing_for_the_send_limit_ends_the_channel() {
     let (mine, _theirs) = duplex(8);
-    let channel = StreamChannel::builder(LengthPrefix::u32_be())
+    let channel = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
         .send_limit(Duration::from_millis(100))
-        .build(mine);
+        .stream(mine)
+        .build()
+        .unwrap();
     assert_eq!(channel.send(&[0; 64]).await, Err(Failure::NoProgress));
     assert_eq!(channel.send(b"more").await, Err(Failure::NoProgress));
     assert_eq!(channel.receive(WAIT).await, Err(Failure::NoProgress));
@@ -354,9 +369,12 @@ async fn sends_and_receives_run_at_once_from_many_tasks() {
 #[tokio::test]
 async fn a_staged_bound_takes_effect_by_position_and_limits_are_reported() {
     let (one, other) = duplex(4096);
-    let one = StreamChannel::builder(LengthPrefix::u32_be())
-        .max_message(10)
-        .build(one);
+    let one = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
+        .max_message(10usize)
+        .stream(one)
+        .build()
+        .unwrap();
     let other = StreamChannel::new(other, LengthPrefix::u32_be());
     one.set_max_receive_after(1, 100).unwrap();
     other.send(&[1; 10]).await.unwrap();
@@ -393,14 +411,30 @@ async fn a_duplex_of_two_async_halves_is_one_stream() {
     );
 }
 
+/// The setting, value and default of each line, as text.
+fn lines(found: &[NonDefault]) -> Vec<(String, String, String)> {
+    found
+        .iter()
+        .map(|n| {
+            (
+                n.setting.clone(),
+                n.value.to_string(),
+                n.default.to_string(),
+            )
+        })
+        .collect()
+}
+
 #[test]
 fn settings_that_differ_from_their_defaults_are_listed_as_non_default_by_key() {
     assert!(
-        StreamChannel::builder(LengthPrefix::u32_be())
+        StreamChannelBuilder::<LengthPrefix, tokio::io::DuplexStream>::new()
+            .codec(LengthPrefix::u32_be())
             .non_defaults()
             .is_empty()
     );
-    let looser = StreamChannel::builder(LengthPrefix::u32_be())
+    let looser = StreamChannelBuilder::<LengthPrefix, tokio::io::DuplexStream>::new()
+        .codec(LengthPrefix::u32_be())
         .max_message(StreamChannel::DEFAULT_MAX_MESSAGE + 1)
         .send_limit(StreamChannel::DEFAULT_SEND_LIMIT + Duration::from_secs(1))
         .read_buffer(StreamChannel::DEFAULT_READ_BUFFER + 1);
@@ -408,13 +442,13 @@ fn settings_that_differ_from_their_defaults_are_listed_as_non_default_by_key() {
     let names: Vec<&str> = found.iter().map(|n| n.setting.as_str()).collect();
     assert_eq!(names, ["max_message", "read_buffer", "send_limit"]);
     assert_eq!(
-        found[0],
-        NonDefault::new(
-            "max_message",
-            (StreamChannel::DEFAULT_MAX_MESSAGE + 1).to_string(),
-            StreamChannel::DEFAULT_MAX_MESSAGE.to_string()
-        )
+        lines(&found[..1]),
+        [(
+            "max_message".to_owned(),
+            format!("usize({})", StreamChannel::DEFAULT_MAX_MESSAGE + 1),
+            format!("usize({})", StreamChannel::DEFAULT_MAX_MESSAGE),
+        )]
     );
-    assert_eq!(found[2].value, "[31,0]");
-    assert_eq!(found[2].default, "[30,0]");
+    assert_eq!(found[2].value.to_string(), "Duration(31s)");
+    assert_eq!(found[2].default.to_string(), "Duration(30s)");
 }

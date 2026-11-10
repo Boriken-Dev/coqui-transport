@@ -8,7 +8,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use coqui_transport::frame::{Codec, LengthPrefix};
-use coqui_transport::{Channel, Connector, Failure, Listener, Split, StreamChannel, tcp};
+use coqui_transport::{
+    Channel, Connector, Failure, Listener, Split, StreamChannel, StreamChannelBuilder,
+    StreamChannelSettingsSetters, tcp,
+};
 use support::WAIT;
 
 fn loopback() -> SocketAddr {
@@ -65,9 +68,11 @@ fn closing_a_channel_ends_the_stream_for_the_peer_after_what_was_sent() {
 fn closing_while_the_peer_still_sends_loses_nothing_this_side_sent() {
     let listener = TcpListener::bind(loopback()).unwrap();
     let address = listener.local_addr().unwrap();
-    let client = StreamChannel::builder(LengthPrefix::u32_be())
-        .pending(1)
-        .start(TcpStream::connect(address).unwrap())
+    let client = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
+        .pending(1usize)
+        .stream(TcpStream::connect(address).unwrap())
+        .build()
         .unwrap();
     let (server, _) = listener.accept().unwrap();
     // The peer sends far more than the channel reads before it closes.

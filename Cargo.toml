@@ -25,17 +25,17 @@ default = []
 tokio = ["dep:tokio"]
 
 [dependencies]
-# The settings types' value form and schema; alpha, by revision, as the family pins it.
-guatiao = { git = "https://github.com/Boriken-Dev/guatiao", rev = "0350bae7fef4cef2aa46ce73f1ef6be15983d83b", default-features = false, features = ["derive"] }
-# The text rendering of a non-default value.
-guatiao-serde = { git = "https://github.com/Boriken-Dev/guatiao", rev = "0350bae7fef4cef2aa46ce73f1ef6be15983d83b", default-features = false, features = ["json"] }
+# Describes, fills and builds the stream channel's settings and its builder; alpha, by revision, as the family pins it.
+coqui-builder = { git = "https://github.com/Boriken-Dev/coqui-builder", rev = "14aca5d74ef435543f9258dd0a29fab7bb596eab", features = ["derive"] }
 # Async I/O, behind `tokio`: `io-util` for split halves and read/write calls, `net` for TCP, `sync` for the locks a
 # channel's two directions take, `time` for timeouts. No runtime: the caller's runs it.
 tokio = { version = "1", default-features = false, features = ["io-util", "net", "sync", "time"], optional = true }
 
 [dev-dependencies]
-# The settings types' text forms in tests.
-guatiao-serde = { git = "https://github.com/Boriken-Dev/guatiao", rev = "0350bae7fef4cef2aa46ce73f1ef6be15983d83b", default-features = false, features = ["json", "toml"] }
+# Reads a settings type from the TOML and JSON the tests write: `Partial` deserializes with `serde`.
+coqui-builder = { git = "https://github.com/Boriken-Dev/coqui-builder", rev = "14aca5d74ef435543f9258dd0a29fab7bb596eab", features = ["derive", "serde"] }
+serde_json = "1"
+toml = "=1.1.8"
 # Arbitrary bytes and chunkings for the decoders.
 proptest = { version = "1", default-features = false, features = ["std"] }
 # A runtime for the async tests and examples.

@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 use coqui_transport::frame::{Codec, LengthPrefix};
 use coqui_transport::memory::{self, ReadHalf, WriteHalf};
 use coqui_transport::{
-    Capabilities, Carrier, Channel, Failure, Halves, NonDefault, StreamChannel,
-    StreamChannelBuilder,
+    Capabilities, Carrier, Channel, Failure, Halves, StreamChannel, StreamChannelBuilder,
+    StreamChannelSettingsSetters,
 };
 use support::WAIT;
 
@@ -31,11 +31,11 @@ fn channels<C: Codec + Clone>(codec: C) -> (StreamChannel, StreamChannel) {
 
 /// A channel on one end of a pipe, and the other end's halves to read and write bytes by hand.
 fn raw<C: Codec>(
-    builder: StreamChannelBuilder<C>,
+    builder: StreamChannelBuilder<C, memory::Stream>,
     capacity: usize,
 ) -> (StreamChannel, ReadHalf, WriteHalf) {
     let (one, other) = memory::pipe(capacity);
-    let channel = builder.start(one).unwrap();
+    let channel = builder.stream(one).build().unwrap();
     let (reader, writer) = other.into_halves();
     (channel, reader, writer)
 }
@@ -75,9 +75,13 @@ fn messages_cross_in_order_both_ways() {
 #[test]
 fn an_empty_message_and_a_large_one_cross_where_empty_is_allowed() {
     let (one, other) = memory::pipe(4096);
-    let builder = || StreamChannel::builder(LengthPrefix::u32_be()).max_message(256 * 1024);
-    let one = builder().start(one).unwrap();
-    let other = builder().start(other).unwrap();
+    let builder = || {
+        StreamChannelBuilder::new()
+            .codec(LengthPrefix::u32_be())
+            .max_message(256usize * 1024)
+    };
+    let one = builder().stream(one).build().unwrap();
+    let other = builder().stream(other).build().unwrap();
     let large: Vec<u8> = (0..200 * 1024).map(|at| (at % 251) as u8).collect();
     one.send(b"").unwrap();
     one.send(&large).unwrap();
@@ -110,7 +114,9 @@ fn a_message_above_the_send_bound_is_refused_and_the_channel_goes_on() {
 #[test]
 fn a_header_above_the_receive_bound_ends_the_channel_at_both_ends() {
     let (channel, mut reader, mut writer) = raw(
-        StreamChannel::builder(LengthPrefix::u32_be()).max_message(10),
+        StreamChannelBuilder::new()
+            .codec(LengthPrefix::u32_be())
+            .max_message(10usize),
         4096,
     );
     writer.write_all(&frame(b"ok")).unwrap();
@@ -130,9 +136,13 @@ fn a_header_above_the_receive_bound_ends_the_channel_at_both_ends() {
 #[test]
 fn partial_reads_and_writes_carry_whole_messages() {
     let (one, other) = memory::pipe(1);
-    let builder = || StreamChannel::builder(LengthPrefix::u32_be()).read_buffer(1);
-    let one = builder().start(one).unwrap();
-    let other = builder().start(other).unwrap();
+    let builder = || {
+        StreamChannelBuilder::new()
+            .codec(LengthPrefix::u32_be())
+            .read_buffer(1usize)
+    };
+    let one = builder().stream(one).build().unwrap();
+    let other = builder().stream(other).build().unwrap();
     let messages: Vec<Vec<u8>> = (0..20)
         .map(|length| vec![length as u8; length * 7])
         .collect();
@@ -146,7 +156,10 @@ fn partial_reads_and_writes_carry_whole_messages() {
 
 #[test]
 fn a_receive_that_times_out_keeps_what_arrived_and_the_channel_goes_on() {
-    let (channel, _reader, mut writer) = raw(StreamChannel::builder(LengthPrefix::u32_be()), 4096);
+    let (channel, _reader, mut writer) = raw(
+        StreamChannelBuilder::new().codec(LengthPrefix::u32_be()),
+        4096,
+    );
     let bytes = frame(b"hello");
     writer.write_all(&bytes[..6]).unwrap();
     assert_eq!(channel.receive(SHORT), Err(Failure::Timeout));
@@ -159,8 +172,10 @@ fn a_receive_that_times_out_keeps_what_arrived_and_the_channel_goes_on() {
 #[test]
 fn a_stream_ending_inside_a_frame_is_a_lost_path() {
     for cut in [1, 3, 4, 6] {
-        let (channel, _reader, mut writer) =
-            raw(StreamChannel::builder(LengthPrefix::u32_be()), 4096);
+        let (channel, _reader, mut writer) = raw(
+            StreamChannelBuilder::new().codec(LengthPrefix::u32_be()),
+            4096,
+        );
         writer.write_all(&frame(b"hello")[..cut]).unwrap();
         drop(writer);
         assert_eq!(
@@ -179,7 +194,10 @@ fn a_stream_ending_inside_a_frame_is_a_lost_path() {
 
 #[test]
 fn a_stream_ending_between_frames_is_an_orderly_end_and_stays_one() {
-    let (channel, _reader, mut writer) = raw(StreamChannel::builder(LengthPrefix::u32_be()), 4096);
+    let (channel, _reader, mut writer) = raw(
+        StreamChannelBuilder::new().codec(LengthPrefix::u32_be()),
+        4096,
+    );
     writer.write_all(&frame(b"last")).unwrap();
     drop(writer);
     assert_eq!(channel.receive(WAIT).unwrap(), Some(b"last".to_vec()));
@@ -214,9 +232,10 @@ fn flood(mut writer: WriteHalf, count: usize) -> (Arc<AtomicUsize>, thread::Join
 
 #[test]
 fn a_slow_reader_holds_the_peers_sends_back() {
-    let builder = StreamChannel::builder(LengthPrefix::u32_be())
-        .pending(1)
-        .read_buffer(36);
+    let builder = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
+        .pending(1usize)
+        .read_buffer(36usize);
     let (channel, _reader, writer) = raw(builder, 36);
     let (written, flooding) = flood(writer, 50);
     thread::sleep(Duration::from_millis(300));
@@ -245,9 +264,10 @@ fn a_slow_reader_holds_the_peers_sends_back() {
 
 #[test]
 fn a_read_ahead_of_0_is_1() {
-    let builder = StreamChannel::builder(LengthPrefix::u32_be())
-        .pending(0)
-        .read_buffer(36);
+    let builder = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
+        .pending(0usize)
+        .read_buffer(36usize);
     let (channel, _reader, writer) = raw(builder, 36);
     let (written, flooding) = flood(writer, 10);
     thread::sleep(Duration::from_millis(300));
@@ -262,8 +282,9 @@ fn a_read_ahead_of_0_is_1() {
 fn a_full_queue_refuses_or_waits_and_nothing_refused_is_sent() {
     // Room for two queued 10-byte messages, on a pipe that holds one byte and is never read.
     let cost = 4 + 10 + 64;
-    let builder = StreamChannel::builder(LengthPrefix::u32_be())
-        .queued_bytes(2 * cost)
+    let builder = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
+        .queued_bytes(2usize * cost)
         .send_limit(Duration::from_secs(60));
     let (channel, mut reader, _writer) = raw(builder, 1);
     channel.send(&[1; 10]).unwrap();
@@ -290,7 +311,9 @@ fn a_full_queue_refuses_or_waits_and_nothing_refused_is_sent() {
 
 #[test]
 fn a_message_larger_than_the_whole_queue_is_refused_at_once() {
-    let builder = StreamChannel::builder(LengthPrefix::u32_be()).queued_bytes(100);
+    let builder = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
+        .queued_bytes(100usize);
     let (channel, _reader, _writer) = raw(builder, 4096);
     let started = Instant::now();
     assert_eq!(
@@ -304,8 +327,9 @@ fn a_message_larger_than_the_whole_queue_is_refused_at_once() {
 
 #[test]
 fn every_queued_message_counts_more_than_its_bytes_so_empty_ones_are_bounded_too() {
-    let builder = StreamChannel::builder(LengthPrefix::u32_be())
-        .queued_bytes(3 * (4 + 64))
+    let builder = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
+        .queued_bytes(3usize * (4 + 64))
         .send_limit(Duration::from_secs(60));
     let (channel, _reader, _writer) = raw(builder, 1);
     for _ in 0..3 {
@@ -316,8 +340,9 @@ fn every_queued_message_counts_more_than_its_bytes_so_empty_ones_are_bounded_too
 
 #[test]
 fn a_peer_that_takes_nothing_for_the_send_limit_ends_the_channel() {
-    let builder =
-        StreamChannel::builder(LengthPrefix::u32_be()).send_limit(Duration::from_millis(100));
+    let builder = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
+        .send_limit(Duration::from_millis(100));
     let (channel, _reader, _writer) = raw(builder, 8);
     channel.send(&[0; 64]).unwrap();
     thread::sleep(Duration::from_millis(250));
@@ -329,9 +354,10 @@ fn a_peer_that_takes_nothing_for_the_send_limit_ends_the_channel() {
 
 #[test]
 fn a_send_waiting_for_room_sees_the_send_limit_pass() {
-    let builder = StreamChannel::builder(LengthPrefix::u32_be())
+    let builder = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
         .send_limit(Duration::from_millis(100))
-        .queued_bytes(100);
+        .queued_bytes(100usize);
     let (channel, _reader, _writer) = raw(builder, 8);
     channel.send(&[0; 30]).unwrap();
     let started = Instant::now();
@@ -360,9 +386,11 @@ impl Write for TimingOut {
 fn a_stream_with_a_write_timeout_ends_the_channel_by_itself_at_the_send_limit() {
     let (mine, _theirs) = memory::pipe(16);
     let (reader, _writer) = mine.into_halves();
-    let channel = StreamChannel::builder(LengthPrefix::u32_be())
+    let channel = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
         .send_limit(Duration::from_millis(100))
-        .start(Halves::new(reader, TimingOut))
+        .stream(Halves::new(reader, TimingOut))
+        .build()
         .unwrap();
     channel.send(b"never taken").unwrap();
     // No further send: the writer itself gives up, and a waiting receive hears it.
@@ -371,7 +399,10 @@ fn a_stream_with_a_write_timeout_ends_the_channel_by_itself_at_the_send_limit() 
 
 #[test]
 fn a_peer_that_stopped_reading_for_good_is_a_lost_path() {
-    let (channel, reader, _writer) = raw(StreamChannel::builder(LengthPrefix::u32_be()), 4096);
+    let (channel, reader, _writer) = raw(
+        StreamChannelBuilder::new().codec(LengthPrefix::u32_be()),
+        4096,
+    );
     drop(reader);
     channel.send(b"into nothing").unwrap();
     let started = Instant::now();
@@ -548,8 +579,9 @@ fn messages_read_before_closing_stay_readable() {
 
 #[test]
 fn closing_while_the_peer_takes_nothing_gives_up_after_the_send_limit() {
-    let builder =
-        StreamChannel::builder(LengthPrefix::u32_be()).send_limit(Duration::from_millis(100));
+    let builder = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
+        .send_limit(Duration::from_millis(100));
     let (channel, _reader, _writer) = raw(builder, 4);
     channel.send(&[0; 64]).unwrap();
     let started = Instant::now();
@@ -563,8 +595,9 @@ fn closing_while_the_peer_takes_nothing_gives_up_after_the_send_limit() {
 
 #[test]
 fn a_failure_ends_the_stream_at_once_waking_a_writer_blocked_on_it() {
-    let builder = StreamChannel::builder(LengthPrefix::u32_be())
-        .max_message(10)
+    let builder = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
+        .max_message(10usize)
         .send_limit(Duration::from_secs(60));
     let (channel, mut reader, mut writer) = raw(builder, 8);
     channel.set_max_send(1000);
@@ -609,9 +642,11 @@ impl Write for Paced {
 fn a_large_frame_to_a_slow_but_steady_stream_is_not_taken_for_a_stall() {
     let (mine, _theirs) = memory::pipe(16);
     let (reader, _writer) = mine.into_halves();
-    let channel = StreamChannel::builder(LengthPrefix::u32_be())
+    let channel = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
         .send_limit(Duration::from_millis(200))
-        .start(Halves::new(reader, Paced))
+        .stream(Halves::new(reader, Paced))
+        .build()
         .unwrap();
     // About half a second for the whole frame, at two bytes a microsecond.
     channel.send(&vec![0; 1 << 20]).unwrap();
@@ -626,9 +661,11 @@ fn closing_a_channel_whose_writer_cannot_be_woken_returns_after_the_send_limit()
     let (reader, writer) = mine.into_halves();
     // An interrupt that wakes nothing, as a platform whose shutdown leaves a blocked write blocked.
     let halves = Halves::new(reader, writer).interrupt(coqui_transport::Interrupt::new(|| {}));
-    let channel = StreamChannel::builder(LengthPrefix::u32_be())
+    let channel = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
         .send_limit(Duration::from_millis(100))
-        .start(halves)
+        .stream(halves)
+        .build()
         .unwrap();
     channel.send(&[0; 64]).unwrap();
     let started = Instant::now();
@@ -641,9 +678,11 @@ fn closing_a_channel_whose_writer_cannot_be_woken_returns_after_the_send_limit()
 #[test]
 fn a_staged_bound_takes_effect_by_position_however_far_ahead_it_is_read() {
     let (one, other) = memory::pipe(4096);
-    let one = StreamChannel::builder(LengthPrefix::u32_be())
-        .max_message(10)
-        .start(one)
+    let one = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
+        .max_message(10usize)
+        .stream(one)
+        .build()
         .unwrap();
     let other = StreamChannel::start(other, LengthPrefix::u32_be()).unwrap();
     one.set_max_receive_after(1, 100).unwrap();
@@ -658,9 +697,11 @@ fn a_staged_bound_takes_effect_by_position_however_far_ahead_it_is_read() {
 
     // A large message where the small bound still holds is refused.
     let (one, other) = memory::pipe(4096);
-    let one = StreamChannel::builder(LengthPrefix::u32_be())
-        .max_message(10)
-        .start(one)
+    let one = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
+        .max_message(10usize)
+        .stream(one)
+        .build()
         .unwrap();
     let other = StreamChannel::start(other, LengthPrefix::u32_be()).unwrap();
     one.set_max_receive_after(1, 100).unwrap();
@@ -671,9 +712,11 @@ fn a_staged_bound_takes_effect_by_position_however_far_ahead_it_is_read() {
 #[test]
 fn a_stage_of_nothing_is_the_bound_at_once_and_a_later_call_replaces_a_stage() {
     let (one, other) = memory::pipe(4096);
-    let one = StreamChannel::builder(LengthPrefix::u32_be())
-        .max_message(10)
-        .start(one)
+    let one = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
+        .max_message(10usize)
+        .stream(one)
+        .build()
         .unwrap();
     let other = StreamChannel::start(other, LengthPrefix::u32_be()).unwrap();
     one.set_max_receive_after(0, 20).unwrap();
@@ -714,9 +757,11 @@ fn capabilities_report_the_stream_and_its_limits_as_they_stand() {
 #[test]
 fn bounds_too_long_for_the_clock_wait_as_none_would() {
     let (one, other) = memory::pipe(4096);
-    let one = StreamChannel::builder(LengthPrefix::u32_be())
+    let one = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
         .send_limit(Duration::MAX)
-        .start(one)
+        .stream(one)
+        .build()
         .unwrap();
     let other = StreamChannel::start(other, LengthPrefix::u32_be()).unwrap();
     one.send_timeout(b"far", Some(Duration::MAX)).unwrap();
@@ -733,17 +778,20 @@ fn bounds_too_long_for_the_clock_wait_as_none_would() {
 
 #[test]
 fn settings_that_differ_from_their_defaults_are_listed_as_non_default_by_key() {
-    let defaults = StreamChannel::builder(LengthPrefix::u32_be());
+    let defaults =
+        StreamChannelBuilder::<LengthPrefix, memory::Stream>::new().codec(LengthPrefix::u32_be());
     assert!(defaults.non_defaults().is_empty());
-    let tighter = StreamChannel::builder(LengthPrefix::u32_be())
-        .max_message(1)
-        .pending(1)
-        .queued_bytes(1)
+    let tighter = StreamChannelBuilder::<LengthPrefix, memory::Stream>::new()
+        .codec(LengthPrefix::u32_be())
+        .max_message(1usize)
+        .pending(1usize)
+        .queued_bytes(1usize)
         .send_limit(Duration::from_millis(1))
-        .read_buffer(1)
+        .read_buffer(1usize)
         .linger(Duration::ZERO);
     assert_eq!(tighter.non_defaults().len(), 6, "a lower value differs too");
-    let looser = StreamChannel::builder(LengthPrefix::u32_be())
+    let looser = StreamChannelBuilder::<LengthPrefix, memory::Stream>::new()
+        .codec(LengthPrefix::u32_be())
         .max_message(StreamChannel::DEFAULT_MAX_MESSAGE + 1)
         .pending(StreamChannel::DEFAULT_PENDING + 1)
         .queued_bytes(StreamChannel::DEFAULT_QUEUED_BYTES + 1)
@@ -764,8 +812,16 @@ fn settings_that_differ_from_their_defaults_are_listed_as_non_default_by_key() {
         ]
     );
     assert_eq!(
-        found[0],
-        NonDefault::new("linger", "[0,501000000]", "[0,500000000]")
+        (
+            found[0].setting.as_str(),
+            found[0].value.to_string(),
+            found[0].default.to_string()
+        ),
+        (
+            "linger",
+            "Duration(501ms)".to_owned(),
+            "Duration(500ms)".to_owned()
+        )
     );
 }
 
