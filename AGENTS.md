@@ -256,44 +256,55 @@ pub mod tagged { pub const MESSAGE: u8 = 0; pub const DATAGRAM: u8 = 1; }       
 // mux
 pub struct Mux;  pub struct MuxChannel;  // must_use, Debug; dropping the last handle (a Mux or any MuxChannel) closes everything
 impl Mux {
-    pub const DEFAULT_CHANNELS: usize;  /* 16 */      pub const DEFAULT_MAX_MESSAGE: usize;  /* 1 MiB */  pub const DEFAULT_PENDING: usize;  /* 64 */
+    pub const DEFAULT_CHANNELS: usize;  /* 16 */      pub const DEFAULT_MAX_MESSAGE: usize;  /* 1 MiB - 12 */  pub const DEFAULT_PENDING: usize;  /* 64 */
     pub const DEFAULT_QUEUED_BYTES: usize;  /* 16 MiB */  pub const DEFAULT_SEND_LIMIT: Duration;  /* 30 s */  pub const DEFAULT_MAX_DATAGRAM: usize;  /* 1200 */
     pub const DEFAULT_DATAGRAM_QUEUE: usize;  /* 64 */  pub const DEFAULT_DATAGRAM_PENDING: usize;  /* 64 */
+    pub const DEFAULT_RECEIVED_BYTES: usize;  /* 16 MiB */  pub const DEFAULT_UNOPENED_BYTES: usize;  /* 64 KiB */  pub const DEFAULT_MAX_DAMAGED: usize;  /* 8 */
     pub fn start<T: Channel + 'static>(carrier: T) -> io::Result<Mux>;               // default settings; two threads
-    pub fn single<T: Channel + 'static>(carrier: T) -> io::Result<MuxChannel>;        // start, then channel 0
+    pub fn single<T: Channel + 'static>(carrier: T) -> io::Result<MuxChannel>;        // channels = 1, then channel 0 (a frame for another number is a breach)
     pub fn legacy<T: Channel + 'static>(carrier: T) -> io::Result<MuxChannel>;        // the explicit wrapper: Framing::Tagged, one tag byte, both ends wrap
     pub fn channel(&self, number: u16) -> Result<MuxChannel, OpenError>;              // a number is taken once, never reused
-    pub fn counters(&self) -> Counters;  pub fn close(&self);                         // close: every channel, queue written, carrier closed, threads joined; repeatable
+    pub fn counters(&self) -> Counters;  pub fn close(&self);                         // close: every channel, queue written, carrier closed once, threads ended, all within send_limit; repeatable
 }
-impl MuxChannel { pub const fn number(&self) -> u16; }                                // implements Channel, with datagrams() = Some, Delivery::OverStream
+impl MuxChannel { pub const fn number(&self) -> u16;  pub fn counters(&self) -> Counters; }                                // implements Channel, with datagrams() = Some, Delivery::OverStream
 pub struct Counters { pub corrupt: u64, pub lost_datagrams: u64 }                      // non_exhaustive; frames dropped for a bad checksum; gaps in the datagram count
 pub enum OpenError { Number, InUse, Closed }                                          // non_exhaustive, Copy, Error
 pub enum Framing { Versioned, Tagged }  pub enum DatagramDrop { Oldest, Newest }      // non_exhaustive, Leaf: lowercase names in text
 // Derived by coqui_builder::Builder from MuxParts<T: Channel + 'static> (settings + input `carrier`); the setters are inherent methods of MuxBuilder<T>.
 impl<T> MuxBuilder<T> { pub fn new() -> Self;  pub fn carrier(self, T) -> Self;
-    pub fn framing / channels / max_message / pending / queued_bytes / send_limit / max_datagram / datagram_queue / datagram_pending / datagram_drop(..) -> Self;
+    pub fn framing / channels / max_message / pending / queued_bytes / received_bytes / unopened_bytes / max_damaged / send_limit / max_datagram / datagram_queue / datagram_pending / datagram_drop(..) -> Self;
     pub fn fill(self, Partial<MuxSettings>) -> Self;  pub fn non_defaults(&self) -> Vec<NonDefault>;  pub fn build(self) -> Result<Mux, BuildError<io::Error>>; }
 #[non_exhaustive] pub struct MuxSettings { pub framing, pub channels: usize, pub max_message: usize, pub pending: usize, pub queued_bytes: usize,
+    pub received_bytes: usize, pub unopened_bytes: usize, pub max_damaged: usize,
     pub send_limit: Duration, pub max_datagram: usize, pub datagram_queue: usize, pub datagram_pending: usize, pub datagram_drop: DatagramDrop }   // Describe; Default = the DEFAULT_ constants
 ```
 
 `Mux::start` takes any `Channel` whose messages are frames, so the carrier's codec delimits them: `StreamChannel` with `LengthPrefix` on a
-byte stream, with `Cobs` on a serial line. A carrier whose `capabilities()` reports a message bound below `max_message + 12` is raised to
-it (never lowered). Each `MuxChannel` is a `Channel`: `send` queues (the queue full is `Failure::NoProgress` with `is_closed()` false;
+byte stream, with `Cobs` on a serial line. `max_message` is lowered to what the carrier's reported bounds admit (less the frame's 12 bytes); a carrier whose
+bound cannot hold a frame is refused (`InvalidInput`); a carrier's bound is never raised, and a channel's `set_max_*` can lower its own, never
+raise it above that. Each `MuxChannel` is a `Channel`: `send` queues (the queue full is `Failure::NoProgress` with `is_closed()` false;
 `send_timeout` waits), `receive` returns that number's messages in order, then `Ok(None)` after the peer's close.
 
-- **Head-of-line blocking.** One ordered stream carries everything. A channel whose queue (`pending`) is full holds up the reader of the
-  carrier, so every other channel waits until it is read: read every channel you open, or close it.
+- **Head-of-line blocking.** One ordered stream carries everything. A channel whose queue (`pending` messages) is full, or the bytes held for
+  all channels reaching `received_bytes`, holds up the reader of the carrier, so every other channel waits until it is read: read every
+  channel you open, or close it. The reader never waits for a number nobody has taken: those share `unopened_bytes` (at most a quarter of
+  `received_bytes`) and a number past it fails, reporting `Failure::Protocol` when it is taken (it is not used up). Take the numbers at start.
+  Memory a peer can make this side hold is `received_bytes` of messages + as much of datagrams + that share + `queued_bytes` + the datagram queue + the
+  carrier's own buffers.
 - **Datagrams** (`Delivery::OverStream`) never wait: `Datagrams::send` enqueues and returns; past `datagram_queue` the `datagram_drop` one goes
   (counted per channel by `dropped()`, `Ok` either way); a payload over `max_datagram` is `Failure::Protocol`. Messages and datagrams are
   written in turn. Received datagrams past `datagram_pending` drop by the same rule.
-- **Damage.** A frame failing its checksum is dropped and counted (`Counters::corrupt`); the next message frame of that channel then skips a
+- **Damage.** A frame failing its checksum is dropped and counted (`Counters::corrupt`, also on `MuxChannel::counters`); one that fails before
+  any frame has passed, or `max_damaged` in a row, is a breach. The next message frame of that channel then skips a
   sequence number and the channel ends with `Failure::Protocol` (messages before the hole stay readable; the peer gets a close), the others go on.
-  A lost datagram is counted by the gap in the datagram count (`lost_datagrams`).
+  A lost datagram is counted by the gap in the datagram count (`lost_datagrams`). Frames for a channel after it ended are ignored, so an
+  end stays an end.
 - **A breach ends everything** with `Failure::Protocol` and closes the carrier: a frame shorter than 12 bytes, another version, an unknown kind,
-  a close with a payload, a channel number not below `channels`. A message over the receiving bound fails only its channel.
+  a close with a payload, a channel number not below `channels`. A message over `max_message` that the carrier admitted fails only its
+  channel; one over the carrier's own bound ends the carrier and so the multiplexer. A panic in either thread ends it with `Failure::Cancelled`.
 - **`Mux::legacy`**: for an operator who controls both ends of a legacy-codec link: one byte before every message and datagram (`0`, `1`),
-  one channel, no sequence, checksum or close. Both ends MUST wrap; an unwrapped peer is misread by one byte.
+  one channel, no sequence, checksum or close frame: closing the channel (or its failing) flushes and closes the carrier, which is how the peer learns.
+  Both ends MUST wrap; an unwrapped peer is misread by one byte.
 
 ## Adapters
 

@@ -53,7 +53,7 @@ def main() -> None:
         valid("a datagram on the highest channel", "datagram", 65535, 4294967295, b"ping"),
         valid("a close", "close", 3, 9, b""),
         valid("a message holding every byte value below 200", "message", 2, 65536, pattern),
-        valid("a message of zero bytes", "message", 256, 1, bytes(16)),
+        valid("a message of sixteen zero bytes", "message", 256, 1, bytes(16)),
     ]
     good = frame(0, 5, 3, b"abc")
     flipped = bytearray(good)

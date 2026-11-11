@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   reliable channel that misses a frame ends with `Failure::Protocol`. `MuxSettings` and `MuxBuilder` (settings `framing`, `channels`,
   `max_message`, `pending`, `queued_bytes`, `send_limit`, `max_datagram`, `datagram_queue`, `datagram_pending`, `datagram_drop`).
   `Mux::legacy`: the explicit wrapper that adds datagrams to a legacy-codec link by one tag byte, for an operator who controls both ends.
+  Received memory is bounded by settings `received_bytes` (16 MiB) and `unopened_bytes` (64 KiB, for numbers nobody has taken, which never make
+  the reader wait); `max_damaged` (8) ends a link whose frames keep failing their checksum, and a checksum failing before any good frame does
+  at once. `max_message` is lowered to what the carrier admits (a carrier's bound is never raised), default 1 MiB less 12. Closing is bounded by
+  `send_limit`, a panic in a thread ends the multiplexer with `Failure::Cancelled`, and `MuxChannel::counters` reads the damage counters.
 - Feature `process`, module `process`: a child process with piped standard streams as a stream. `Launch` (program, arguments, working directory, environment), `Process::start` and `ProcessBuilder` (settings `stderr`, `stderr_tail`, `console`; the `launch` as the required input), `Process` as a `Split` whose interrupt ends the child's whole tree, `Control` (`try_wait`, `wait`, `kill`, `end`), `Exit`, `Diagnostics` (the newest bytes of standard error, counted), `Connector`. The tree ends together: a job object on Windows, a process group on Unix (and every descendant found through `/proc` on Linux). Standard error is drained on its own thread, bounded, and never merged into the protocol stream. Dependencies behind the feature: `rustix` on Unix, `win32job` on Windows.
 - `Channel`, `Datagrams` and `Delivery` (`Unreliable`, `OverStream`), with the methods and meaning
   they have in `coqui-web-channel` 0.0.0-alpha.0, and two provided methods on `Channel`:
