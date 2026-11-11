@@ -219,11 +219,14 @@ impl coqui_transport::mux::Mux
 pub const coqui_transport::mux::Mux::DEFAULT_CHANNELS: usize
 pub const coqui_transport::mux::Mux::DEFAULT_DATAGRAM_PENDING: usize
 pub const coqui_transport::mux::Mux::DEFAULT_DATAGRAM_QUEUE: usize
+pub const coqui_transport::mux::Mux::DEFAULT_MAX_DAMAGED: usize
 pub const coqui_transport::mux::Mux::DEFAULT_MAX_DATAGRAM: usize
 pub const coqui_transport::mux::Mux::DEFAULT_MAX_MESSAGE: usize
 pub const coqui_transport::mux::Mux::DEFAULT_PENDING: usize
 pub const coqui_transport::mux::Mux::DEFAULT_QUEUED_BYTES: usize
+pub const coqui_transport::mux::Mux::DEFAULT_RECEIVED_BYTES: usize
 pub const coqui_transport::mux::Mux::DEFAULT_SEND_LIMIT: core::time::Duration
+pub const coqui_transport::mux::Mux::DEFAULT_UNOPENED_BYTES: usize
 pub fn coqui_transport::mux::Mux::channel(&self, u16) -> core::result::Result<coqui_transport::mux::MuxChannel, coqui_transport::mux::OpenError>
 pub fn coqui_transport::mux::Mux::close(&self)
 pub fn coqui_transport::mux::Mux::counters(&self) -> coqui_transport::mux::Counters
@@ -246,6 +249,7 @@ impl<T: coqui_transport::Channel + 'static> coqui_transport::mux::MuxBuilder<T> 
 pub fn coqui_transport::mux::MuxBuilder<T>::new() -> Self
 pub struct coqui_transport::mux::MuxChannel
 impl coqui_transport::mux::MuxChannel
+pub fn coqui_transport::mux::MuxChannel::counters(&self) -> coqui_transport::mux::Counters
 pub const fn coqui_transport::mux::MuxChannel::number(&self) -> u16
 impl coqui_transport::Channel for coqui_transport::mux::MuxChannel
 pub fn coqui_transport::mux::MuxChannel::capabilities(&self) -> coqui_transport::Capabilities
@@ -275,11 +279,14 @@ pub coqui_transport::mux::MuxSettings::datagram_drop: coqui_transport::mux::Data
 pub coqui_transport::mux::MuxSettings::datagram_pending: usize
 pub coqui_transport::mux::MuxSettings::datagram_queue: usize
 pub coqui_transport::mux::MuxSettings::framing: coqui_transport::mux::Framing
+pub coqui_transport::mux::MuxSettings::max_damaged: usize
 pub coqui_transport::mux::MuxSettings::max_datagram: usize
 pub coqui_transport::mux::MuxSettings::max_message: usize
 pub coqui_transport::mux::MuxSettings::pending: usize
 pub coqui_transport::mux::MuxSettings::queued_bytes: usize
+pub coqui_transport::mux::MuxSettings::received_bytes: usize
 pub coqui_transport::mux::MuxSettings::send_limit: core::time::Duration
+pub coqui_transport::mux::MuxSettings::unopened_bytes: usize
 impl coqui_transport::mux::MuxSettings
 pub const fn coqui_transport::mux::MuxSettings::new() -> Self
 pub fn coqui_transport::mux::MuxSettings::non_defaults(&self) -> alloc::vec::Vec<coqui_builder::non_default::NonDefault>
@@ -291,11 +298,14 @@ pub fn coqui_transport::mux::MuxSettingsSetters::datagram_drop(self, impl core::
 pub fn coqui_transport::mux::MuxSettingsSetters::datagram_pending(self, usize) -> Self
 pub fn coqui_transport::mux::MuxSettingsSetters::datagram_queue(self, usize) -> Self
 pub fn coqui_transport::mux::MuxSettingsSetters::framing(self, impl core::convert::Into<coqui_transport::mux::Framing>) -> Self
+pub fn coqui_transport::mux::MuxSettingsSetters::max_damaged(self, usize) -> Self
 pub fn coqui_transport::mux::MuxSettingsSetters::max_datagram(self, usize) -> Self
 pub fn coqui_transport::mux::MuxSettingsSetters::max_message(self, usize) -> Self
 pub fn coqui_transport::mux::MuxSettingsSetters::pending(self, usize) -> Self
 pub fn coqui_transport::mux::MuxSettingsSetters::queued_bytes(self, usize) -> Self
+pub fn coqui_transport::mux::MuxSettingsSetters::received_bytes(self, usize) -> Self
 pub fn coqui_transport::mux::MuxSettingsSetters::send_limit(self, impl core::convert::Into<core::time::Duration>) -> Self
+pub fn coqui_transport::mux::MuxSettingsSetters::unopened_bytes(self, usize) -> Self
 pub mod coqui_transport::prelude
 pub trait coqui_transport::prelude::StreamChannelSettingsSetters: coqui_builder::builder::Holds<coqui_transport::StreamChannelSettings> + core::marker::Sized
 pub fn coqui_transport::prelude::StreamChannelSettingsSetters::linger(self, impl core::convert::Into<core::time::Duration>) -> Self
