@@ -89,6 +89,40 @@ pub type tokio::net::tcp::listener::TcpListener::Error = core::io::error::Error
 pub fn tokio::net::tcp::listener::TcpListener::accept(&self) -> coqui_transport::asynch::BoxFuture<'_, core::io::error::Result<tokio::net::tcp::stream::TcpStream>>
 pub type coqui_transport::asynch::BoxFuture<'a, T> = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = T> + core::marker::Send + 'a)>>
 pub mod coqui_transport::frame
+pub mod coqui_transport::frame::versioned
+pub mod coqui_transport::frame::versioned::tagged
+pub const coqui_transport::frame::versioned::tagged::DATAGRAM: u8
+pub const coqui_transport::frame::versioned::tagged::MESSAGE: u8
+#[non_exhaustive] pub enum coqui_transport::frame::versioned::DecodeError
+pub coqui_transport::frame::versioned::DecodeError::Checksum
+pub coqui_transport::frame::versioned::DecodeError::Kind(u8)
+pub coqui_transport::frame::versioned::DecodeError::Payload
+pub coqui_transport::frame::versioned::DecodeError::Short
+pub coqui_transport::frame::versioned::DecodeError::Version(u8)
+impl core::error::Error for coqui_transport::frame::versioned::DecodeError
+impl core::fmt::Display for coqui_transport::frame::versioned::DecodeError
+pub fn coqui_transport::frame::versioned::DecodeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub enum coqui_transport::frame::versioned::Kind
+pub coqui_transport::frame::versioned::Kind::Close
+pub coqui_transport::frame::versioned::Kind::Datagram
+pub coqui_transport::frame::versioned::Kind::Message
+impl coqui_transport::frame::versioned::Kind
+pub const fn coqui_transport::frame::versioned::Kind::byte(self) -> u8
+pub const fn coqui_transport::frame::versioned::Kind::from_byte(u8) -> core::option::Option<Self>
+#[non_exhaustive] pub struct coqui_transport::frame::versioned::Frame
+pub coqui_transport::frame::versioned::Frame::channel: u16
+pub coqui_transport::frame::versioned::Frame::kind: coqui_transport::frame::versioned::Kind
+pub coqui_transport::frame::versioned::Frame::payload: alloc::vec::Vec<u8>
+pub coqui_transport::frame::versioned::Frame::sequence: u32
+impl coqui_transport::frame::versioned::Frame
+pub fn coqui_transport::frame::versioned::Frame::decode(&[u8]) -> core::result::Result<Self, coqui_transport::frame::versioned::DecodeError>
+pub fn coqui_transport::frame::versioned::Frame::encode(&self) -> alloc::vec::Vec<u8>
+pub fn coqui_transport::frame::versioned::Frame::new(coqui_transport::frame::versioned::Kind, u16, u32, impl core::convert::Into<alloc::vec::Vec<u8>>) -> Self
+pub const coqui_transport::frame::versioned::HEADER: usize
+pub const coqui_transport::frame::versioned::OVERHEAD: usize
+pub const coqui_transport::frame::versioned::TRAILER: usize
+pub const coqui_transport::frame::versioned::VERSION: u8
+pub fn coqui_transport::frame::versioned::crc32c(&[u8]) -> u32
 #[non_exhaustive] pub enum coqui_transport::frame::FrameError
 pub coqui_transport::frame::FrameError::Size
 pub coqui_transport::frame::FrameError::Tag
@@ -163,6 +197,105 @@ pub fn coqui_transport::memory::WriteHalf::write(&mut self, &[u8]) -> core::io::
 impl core::ops::drop::Drop for coqui_transport::memory::WriteHalf
 pub fn coqui_transport::memory::WriteHalf::drop(&mut self)
 pub fn coqui_transport::memory::pipe(usize) -> (coqui_transport::memory::Stream, coqui_transport::memory::Stream)
+pub mod coqui_transport::mux
+#[non_exhaustive] pub enum coqui_transport::mux::DatagramDrop
+pub coqui_transport::mux::DatagramDrop::Newest
+pub coqui_transport::mux::DatagramDrop::Oldest
+#[non_exhaustive] pub enum coqui_transport::mux::Framing
+pub coqui_transport::mux::Framing::Tagged
+pub coqui_transport::mux::Framing::Versioned
+#[non_exhaustive] pub enum coqui_transport::mux::OpenError
+pub coqui_transport::mux::OpenError::Closed
+pub coqui_transport::mux::OpenError::InUse
+pub coqui_transport::mux::OpenError::Number
+impl core::error::Error for coqui_transport::mux::OpenError
+impl core::fmt::Display for coqui_transport::mux::OpenError
+pub fn coqui_transport::mux::OpenError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub struct coqui_transport::mux::Counters
+pub coqui_transport::mux::Counters::corrupt: u64
+pub coqui_transport::mux::Counters::lost_datagrams: u64
+pub struct coqui_transport::mux::Mux
+impl coqui_transport::mux::Mux
+pub const coqui_transport::mux::Mux::DEFAULT_CHANNELS: usize
+pub const coqui_transport::mux::Mux::DEFAULT_DATAGRAM_PENDING: usize
+pub const coqui_transport::mux::Mux::DEFAULT_DATAGRAM_QUEUE: usize
+pub const coqui_transport::mux::Mux::DEFAULT_MAX_DATAGRAM: usize
+pub const coqui_transport::mux::Mux::DEFAULT_MAX_MESSAGE: usize
+pub const coqui_transport::mux::Mux::DEFAULT_PENDING: usize
+pub const coqui_transport::mux::Mux::DEFAULT_QUEUED_BYTES: usize
+pub const coqui_transport::mux::Mux::DEFAULT_SEND_LIMIT: core::time::Duration
+pub fn coqui_transport::mux::Mux::channel(&self, u16) -> core::result::Result<coqui_transport::mux::MuxChannel, coqui_transport::mux::OpenError>
+pub fn coqui_transport::mux::Mux::close(&self)
+pub fn coqui_transport::mux::Mux::counters(&self) -> coqui_transport::mux::Counters
+pub fn coqui_transport::mux::Mux::legacy<T: coqui_transport::Channel + 'static>(T) -> core::io::error::Result<coqui_transport::mux::MuxChannel>
+pub fn coqui_transport::mux::Mux::single<T: coqui_transport::Channel + 'static>(T) -> core::io::error::Result<coqui_transport::mux::MuxChannel>
+pub fn coqui_transport::mux::Mux::start<T: coqui_transport::Channel + 'static>(T) -> core::io::error::Result<Self>
+impl core::fmt::Debug for coqui_transport::mux::Mux
+pub fn coqui_transport::mux::Mux::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<T: coqui_transport::Channel + 'static> core::convert::TryFrom<coqui_transport::mux::MuxParts<T>> for coqui_transport::mux::Mux
+pub type coqui_transport::mux::Mux::Error = core::io::error::Error
+pub fn coqui_transport::mux::Mux::try_from(coqui_transport::mux::MuxParts<T>) -> core::io::error::Result<Self>
+pub struct coqui_transport::mux::MuxBuilder<T: coqui_transport::Channel + 'static> where coqui_transport::mux::MuxSettings: coqui_builder::describe::Describe
+impl<T: coqui_transport::Channel + 'static> coqui_transport::mux::MuxBuilder<T> where coqui_transport::mux::MuxSettings: coqui_builder::describe::Describe
+pub fn coqui_transport::mux::MuxBuilder<T>::build(self) -> core::result::Result<coqui_transport::mux::Mux, coqui_builder::builder::BuildError<<coqui_transport::mux::Mux as core::convert::TryFrom<coqui_transport::mux::MuxParts<T>>>::Error>>
+pub fn coqui_transport::mux::MuxBuilder<T>::carrier(self, T) -> Self
+pub fn coqui_transport::mux::MuxBuilder<T>::fill(self, coqui_builder::partial::Partial<coqui_transport::mux::MuxSettings>) -> Self
+pub fn coqui_transport::mux::MuxBuilder<T>::fill_from(self, &mut impl coqui_builder::source::Source) -> core::result::Result<Self, coqui_builder::fill::FillError>
+pub fn coqui_transport::mux::MuxBuilder<T>::parts(self) -> core::result::Result<coqui_transport::mux::MuxParts<T>, coqui_builder::partial::Missing>
+impl<T: coqui_transport::Channel + 'static> coqui_transport::mux::MuxBuilder<T> where coqui_transport::mux::MuxSettings: coqui_builder::describe::Describe
+pub fn coqui_transport::mux::MuxBuilder<T>::new() -> Self
+pub struct coqui_transport::mux::MuxChannel
+impl coqui_transport::mux::MuxChannel
+pub const fn coqui_transport::mux::MuxChannel::number(&self) -> u16
+impl coqui_transport::Channel for coqui_transport::mux::MuxChannel
+pub fn coqui_transport::mux::MuxChannel::capabilities(&self) -> coqui_transport::Capabilities
+pub fn coqui_transport::mux::MuxChannel::close(&self)
+pub fn coqui_transport::mux::MuxChannel::datagrams(&self) -> core::option::Option<&dyn coqui_transport::Datagrams>
+pub fn coqui_transport::mux::MuxChannel::is_closed(&self) -> bool
+pub fn coqui_transport::mux::MuxChannel::peer_certificates(&self) -> core::option::Option<&[alloc::vec::Vec<u8>]>
+pub fn coqui_transport::mux::MuxChannel::receive(&self, core::option::Option<core::time::Duration>) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::Failure>
+pub fn coqui_transport::mux::MuxChannel::send(&self, &[u8]) -> core::result::Result<(), coqui_transport::Failure>
+pub fn coqui_transport::mux::MuxChannel::send_timeout(&self, &[u8], core::option::Option<core::time::Duration>) -> core::result::Result<(), coqui_transport::Failure>
+pub fn coqui_transport::mux::MuxChannel::set_max_message(&self, usize)
+pub fn coqui_transport::mux::MuxChannel::set_max_receive(&self, usize)
+pub fn coqui_transport::mux::MuxChannel::set_max_receive_after(&self, usize, usize) -> core::result::Result<(), coqui_transport::Failure>
+pub fn coqui_transport::mux::MuxChannel::set_max_send(&self, usize)
+pub fn coqui_transport::mux::MuxChannel::set_pending(&self, usize) -> core::result::Result<(), coqui_transport::Failure>
+impl core::fmt::Debug for coqui_transport::mux::MuxChannel
+pub fn coqui_transport::mux::MuxChannel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::ops::drop::Drop for coqui_transport::mux::MuxChannel
+pub fn coqui_transport::mux::MuxChannel::drop(&mut self)
+pub struct coqui_transport::mux::MuxParts<T: coqui_transport::Channel + 'static>
+impl<T: coqui_transport::Channel + 'static> core::convert::TryFrom<coqui_transport::mux::MuxParts<T>> for coqui_transport::mux::Mux
+pub type coqui_transport::mux::Mux::Error = core::io::error::Error
+pub fn coqui_transport::mux::Mux::try_from(coqui_transport::mux::MuxParts<T>) -> core::io::error::Result<Self>
+#[non_exhaustive] pub struct coqui_transport::mux::MuxSettings
+pub coqui_transport::mux::MuxSettings::channels: usize
+pub coqui_transport::mux::MuxSettings::datagram_drop: coqui_transport::mux::DatagramDrop
+pub coqui_transport::mux::MuxSettings::datagram_pending: usize
+pub coqui_transport::mux::MuxSettings::datagram_queue: usize
+pub coqui_transport::mux::MuxSettings::framing: coqui_transport::mux::Framing
+pub coqui_transport::mux::MuxSettings::max_datagram: usize
+pub coqui_transport::mux::MuxSettings::max_message: usize
+pub coqui_transport::mux::MuxSettings::pending: usize
+pub coqui_transport::mux::MuxSettings::queued_bytes: usize
+pub coqui_transport::mux::MuxSettings::send_limit: core::time::Duration
+impl coqui_transport::mux::MuxSettings
+pub const fn coqui_transport::mux::MuxSettings::new() -> Self
+pub fn coqui_transport::mux::MuxSettings::non_defaults(&self) -> alloc::vec::Vec<coqui_builder::non_default::NonDefault>
+impl core::default::Default for coqui_transport::mux::MuxSettings
+pub fn coqui_transport::mux::MuxSettings::default() -> Self
+pub trait coqui_transport::mux::MuxSettingsSetters: coqui_builder::builder::Holds<coqui_transport::mux::MuxSettings> + core::marker::Sized
+pub fn coqui_transport::mux::MuxSettingsSetters::channels(self, usize) -> Self
+pub fn coqui_transport::mux::MuxSettingsSetters::datagram_drop(self, impl core::convert::Into<coqui_transport::mux::DatagramDrop>) -> Self
+pub fn coqui_transport::mux::MuxSettingsSetters::datagram_pending(self, usize) -> Self
+pub fn coqui_transport::mux::MuxSettingsSetters::datagram_queue(self, usize) -> Self
+pub fn coqui_transport::mux::MuxSettingsSetters::framing(self, impl core::convert::Into<coqui_transport::mux::Framing>) -> Self
+pub fn coqui_transport::mux::MuxSettingsSetters::max_datagram(self, usize) -> Self
+pub fn coqui_transport::mux::MuxSettingsSetters::max_message(self, usize) -> Self
+pub fn coqui_transport::mux::MuxSettingsSetters::pending(self, usize) -> Self
+pub fn coqui_transport::mux::MuxSettingsSetters::queued_bytes(self, usize) -> Self
+pub fn coqui_transport::mux::MuxSettingsSetters::send_limit(self, impl core::convert::Into<core::time::Duration>) -> Self
 pub mod coqui_transport::prelude
 pub trait coqui_transport::prelude::StreamChannelSettingsSetters: coqui_builder::builder::Holds<coqui_transport::StreamChannelSettings> + core::marker::Sized
 pub fn coqui_transport::prelude::StreamChannelSettingsSetters::linger(self, impl core::convert::Into<core::time::Duration>) -> Self
@@ -468,6 +601,20 @@ pub fn coqui_transport::StreamChannel::set_max_receive(&self, usize)
 pub fn coqui_transport::StreamChannel::set_max_receive_after(&self, usize, usize) -> core::result::Result<(), coqui_transport::Failure>
 pub fn coqui_transport::StreamChannel::set_max_send(&self, usize)
 pub fn coqui_transport::StreamChannel::set_pending(&self, usize) -> core::result::Result<(), coqui_transport::Failure>
+impl coqui_transport::Channel for coqui_transport::mux::MuxChannel
+pub fn coqui_transport::mux::MuxChannel::capabilities(&self) -> coqui_transport::Capabilities
+pub fn coqui_transport::mux::MuxChannel::close(&self)
+pub fn coqui_transport::mux::MuxChannel::datagrams(&self) -> core::option::Option<&dyn coqui_transport::Datagrams>
+pub fn coqui_transport::mux::MuxChannel::is_closed(&self) -> bool
+pub fn coqui_transport::mux::MuxChannel::peer_certificates(&self) -> core::option::Option<&[alloc::vec::Vec<u8>]>
+pub fn coqui_transport::mux::MuxChannel::receive(&self, core::option::Option<core::time::Duration>) -> core::result::Result<core::option::Option<alloc::vec::Vec<u8>>, coqui_transport::Failure>
+pub fn coqui_transport::mux::MuxChannel::send(&self, &[u8]) -> core::result::Result<(), coqui_transport::Failure>
+pub fn coqui_transport::mux::MuxChannel::send_timeout(&self, &[u8], core::option::Option<core::time::Duration>) -> core::result::Result<(), coqui_transport::Failure>
+pub fn coqui_transport::mux::MuxChannel::set_max_message(&self, usize)
+pub fn coqui_transport::mux::MuxChannel::set_max_receive(&self, usize)
+pub fn coqui_transport::mux::MuxChannel::set_max_receive_after(&self, usize, usize) -> core::result::Result<(), coqui_transport::Failure>
+pub fn coqui_transport::mux::MuxChannel::set_max_send(&self, usize)
+pub fn coqui_transport::mux::MuxChannel::set_pending(&self, usize) -> core::result::Result<(), coqui_transport::Failure>
 pub trait coqui_transport::Connector
 pub type coqui_transport::Connector::Connection
 pub type coqui_transport::Connector::Error: core::error::Error
