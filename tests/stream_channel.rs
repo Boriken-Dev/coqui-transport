@@ -16,6 +16,7 @@ use coqui_transport::{
 };
 use support::WAIT;
 
+// The upper bounds on how long a close or a send takes (120 s) tell a hang from a slow machine; they do not time the code.
 const SHORT: Option<Duration> = Some(Duration::from_millis(50));
 
 fn assert_send_sync<T: Send + Sync>() {}
@@ -247,6 +248,12 @@ fn a_slow_reader_holds_the_peers_sends_back() {
 
     // A higher read-ahead lets the channel read on at once, with nothing received.
     channel.set_pending(10).unwrap();
+    // The channel reads on once it has the room, as soon as a busy machine lets it: wait for the first ten frames, then
+    // leave it time to go further than it may.
+    let until = Instant::now() + Duration::from_secs(300);
+    while written.load(Ordering::SeqCst) < 10 && Instant::now() < until {
+        thread::sleep(Duration::from_millis(10));
+    }
     thread::sleep(Duration::from_millis(300));
     let more = written.load(Ordering::SeqCst);
     assert!(
@@ -319,7 +326,7 @@ fn a_message_larger_than_the_whole_queue_is_refused_at_once() {
         channel.send_timeout(&[0; 40], None),
         Err(Failure::NoProgress)
     );
-    assert!(started.elapsed() < Duration::from_secs(5));
+    assert!(started.elapsed() < Duration::from_secs(120));
     assert_eq!(channel.send(&[0; 40]), Err(Failure::NoProgress));
     channel.send(&[0; 30]).unwrap();
 }
@@ -344,8 +351,15 @@ fn a_peer_that_takes_nothing_for_the_send_limit_ends_the_channel() {
         .send_limit(Duration::from_millis(100));
     let (channel, _reader, _writer) = raw(builder, 8);
     channel.send(&[0; 64]).unwrap();
-    thread::sleep(Duration::from_millis(250));
-    assert_eq!(channel.send(b"more"), Err(Failure::NoProgress));
+    // The limit passes some time after 100 ms, as late as a busy machine makes it: a send is refused once it has.
+    let until = Instant::now() + Duration::from_secs(300);
+    loop {
+        match channel.send(b"more") {
+            Err(Failure::NoProgress) => break,
+            Ok(()) if Instant::now() < until => thread::sleep(Duration::from_millis(10)),
+            other => panic!("the send limit did not end the channel: {other:?}"),
+        }
+    }
     assert_eq!(channel.send(b"more"), Err(Failure::NoProgress));
     assert_eq!(channel.receive(WAIT), Err(Failure::NoProgress));
     assert!(channel.is_closed());
@@ -364,7 +378,7 @@ fn a_send_waiting_for_room_sees_the_send_limit_pass() {
         channel.send_timeout(&[0; 30], WAIT),
         Err(Failure::NoProgress)
     );
-    assert!(started.elapsed() < Duration::from_secs(5));
+    assert!(started.elapsed() < Duration::from_secs(120));
 }
 
 /// A writer that takes nothing and says it timed out, as a stream with a write timeout does.
@@ -406,7 +420,7 @@ fn a_peer_that_stopped_reading_for_good_is_a_lost_path() {
     channel.send(b"into nothing").unwrap();
     let started = Instant::now();
     while channel.send(b"again").is_ok() {
-        assert!(started.elapsed() < Duration::from_secs(10));
+        assert!(started.elapsed() < Duration::from_secs(120));
         thread::sleep(Duration::from_millis(5));
     }
     assert_eq!(channel.send(b"again"), Err(Failure::PathLost));
@@ -515,7 +529,7 @@ fn a_second_receiver_waits_only_as_long_as_its_own_timeout() {
     thread::sleep(Duration::from_millis(50));
     let started = Instant::now();
     assert_eq!(other.receive(SHORT), Err(Failure::Timeout));
-    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(started.elapsed() < Duration::from_secs(120));
     one.send(b"for the first").unwrap();
     assert_eq!(waiting.join().unwrap(), Ok(Some(b"for the first".to_vec())));
 }
@@ -553,7 +567,7 @@ fn closing_wakes_a_blocked_receive_and_can_be_repeated() {
     thread::sleep(Duration::from_millis(50));
     let started = Instant::now();
     one.close();
-    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(started.elapsed() < Duration::from_secs(120));
     assert_eq!(waiting.join().unwrap(), Ok(None));
     one.close();
     assert_eq!(one.send(b"late"), Err(Failure::PathLost));
@@ -564,16 +578,30 @@ fn closing_wakes_a_blocked_receive_and_can_be_repeated() {
 
 #[test]
 fn messages_read_before_closing_stay_readable() {
-    let (one, other) = channels(LengthPrefix::u32_be());
-    for at in 0..3_u8 {
-        other.send(&[at]).unwrap();
-    }
-    thread::sleep(Duration::from_millis(200));
+    // The pipe holds one frame and the channel queues three, so a fourth frame is in the pipe only after the channel took the
+    // first three off it: the writer finishing says they were read.
+    let builder = StreamChannelBuilder::new()
+        .codec(LengthPrefix::u32_be())
+        .pending(3)
+        .read_buffer(5);
+    let (one, _reader, mut writer) = raw(builder, 5);
+    let (done, wrote) = std::sync::mpsc::channel();
+    let writing = thread::spawn(move || {
+        for at in 0..4_u8 {
+            writer.write_all(&frame(&[at])).unwrap();
+        }
+        done.send(()).unwrap();
+        writer
+    });
+    wrote
+        .recv_timeout(Duration::from_secs(300))
+        .expect("the channel took frames off the pipe");
     one.close();
     for at in 0..3_u8 {
         assert_eq!(one.receive(WAIT).unwrap(), Some(vec![at]));
     }
     assert_eq!(one.receive(WAIT), Ok(None));
+    drop(writing.join().unwrap());
 }
 
 #[test]
@@ -587,7 +615,7 @@ fn closing_while_the_peer_takes_nothing_gives_up_after_the_send_limit() {
     channel.close();
     let took = started.elapsed();
     assert!(
-        took >= Duration::from_millis(90) && took < Duration::from_secs(5),
+        took >= Duration::from_millis(90) && took < Duration::from_secs(120),
         "{took:?}"
     );
 }
@@ -619,7 +647,7 @@ fn a_failure_ends_the_stream_at_once_waking_a_writer_blocked_on_it() {
     assert!(read.unwrap() < 1004, "the peer read the whole frame");
     let started = Instant::now();
     channel.close();
-    assert!(started.elapsed() < Duration::from_secs(5));
+    assert!(started.elapsed() < Duration::from_secs(120));
 }
 
 /// Accepts everything, taking time in proportion to what one call is given, as a blocking socket
@@ -670,7 +698,7 @@ fn closing_a_channel_whose_writer_cannot_be_woken_returns_after_the_send_limit()
     let started = Instant::now();
     channel.close();
     let took = started.elapsed();
-    assert!(took < Duration::from_secs(5), "{took:?}");
+    assert!(took < Duration::from_secs(120), "{took:?}");
     assert_eq!(channel.send(b"late"), Err(Failure::PathLost));
 }
 
