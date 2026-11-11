@@ -10,7 +10,7 @@
 carried.** This crate holds the contracts every Coqui transport shares (a reliable message
 `Channel`, the `Datagrams` beside it and how they are delivered, connectors and listeners), the
 framing codecs that turn a byte stream into messages without guessing a wire, a `StreamChannel` that
-does it over any stream, and adapters for memory, this process's standard streams and TCP. It knows
+does it over any stream, and adapters for memory, this process's standard streams, TCP and, with `process`, child processes. It knows
 nothing of peers, trust or applications. Documentation:
 <https://boriken-dev.github.io/coqui-transport/>.
 
@@ -37,6 +37,10 @@ nothing of peers, trust or applications. Documentation:
 - **Async without hidden threads.** With `tokio`, `asynch::AsyncChannel`, `AsyncConnector` and
   `AsyncListener` are object-safe, and `asynch::StreamChannel` reads and writes in the calls
   themselves: nothing blocking runs on the runtime, and nothing is spawned.
+- **Child processes as a transport.** With `process`, a `Process` starts a program with piped standard streams and splits into the
+  stream a channel runs on: standard error drained apart into a bounded tail, never into the protocol stream; the child and everything it
+  started ended together on `kill`, on `end` after a grace period and when the last handle drops (a job object on Windows, a process group
+  on Unix); the exit status kept.
 - **No dependency beyond `std`** in the default build, and no `unsafe`.
 
 ## Installation
@@ -48,6 +52,7 @@ cargo add coqui-transport
 | Feature | Adds | Needed for | Default |
 | --- | --- | --- | --- |
 | `tokio` | `asynch::{AsyncChannel, AsyncConnector, AsyncListener, StreamChannel}`, `Duplex` as `AsyncRead`/`AsyncWrite`, async TCP, on `tokio` (`io-util`, `net`, `sync`, `time`) | async transports | off |
+| `process` | module `process`; `rustix` on Unix and `win32job` on Windows | spawned child processes | off |
 
 ## Quick start
 
@@ -121,6 +126,7 @@ assert_eq!(channel.receive(Some(Duration::from_secs(5)))?, None);
 | `memory` | an in-memory stream pair with bounded buffers |
 | `stdio` | this process's standard input and output as one stream |
 | `tcp` | TCP streams, a connector, and `TcpListener` as a listener |
+| `process` | a child process with piped standard streams: `Launch`, `Process`, `Control`, `Connector`, `Diagnostics` (feature `process`) |
 | `asynch` | the async traits and the async `StreamChannel` (feature `tokio`) |
 
 ## Streams, channels and datagrams

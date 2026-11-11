@@ -7,13 +7,14 @@ with the source at <https://github.com/Boriken-Dev/coqui-transport>.
 | Feature | Adds | Needed for | Default |
 | --- | --- | --- | --- |
 | `tokio` | `asynch::{AsyncChannel, AsyncConnector, AsyncListener, BoxFuture, StreamChannel, StreamChannelBuilder, StreamChannelParts, StreamChannelSettings}`, `asynch::prelude::StreamChannelSettingsSetters`, `Duplex` as `AsyncRead`/`AsyncWrite`, `AsyncConnector for tcp::Connector`, `AsyncListener for tokio::net::TcpListener`; on `tokio` with `io-util`, `net`, `sync`, `time` | async transports | off |
+| `process` | module `process`: `Launch`, `Exit`, `ErrorOutput`, `ProcessSettings`, `ProcessParts`, `ProcessBuilder`, `Process`, `Control`, `Diagnostics`, `Connector`; `rustix` (Unix) and `win32job` (Windows) | spawned child processes | off |
 
 MSRV Rust 1.89. A default build depends on `coqui-builder` (by revision, with its `derive` feature: the settings types' description, fill, setters and builders, and `NonDefault`) and nothing beyond `std`. Version `0.0.0-alpha.0`, not published; the API may change in
 any release before 1.0. The default build compiles for `wasm32-unknown-unknown`; `--features tokio` does not (tokio's `net`).
 
 Imports: the root holds `Channel`, `Datagrams`, `Delivery`, `Failure`, `Capabilities`, `Carrier`, `Connector`, `Listener`, `NonDefault`,
 `Duplex`, `Halves`, `Interrupt`, `Split`, `StreamChannel`, `StreamChannelBuilder`, `StreamChannelParts`, `StreamChannelSettings`. Public modules: `prelude`, `frame`, `memory`, `stdio`,
-`tcp`, `asynch` (feature `tokio`).
+`tcp`, `asynch` (feature `tokio`), `process` (feature `process`).
 
 No `unsafe` code (`#![forbid(unsafe_code)]`). No process-wide state. The library prints nothing and starts no runtime; the only
 threads it starts are a `StreamChannel`'s two.
@@ -269,6 +270,79 @@ A memory blocked read woken by the interrupt fails `ConnectionAborted`, a blocke
 (a `StreamChannel` retries them): a Windows socket's `shutdown` does not wake a read blocked in another thread. `tcp::Connector::connect`
 tries each address in order within one `timeout`: the last address's error, `TimedOut`, or `InvalidInput` for no address or a
 zero timeout; a timeout too long for the clock is none. It resolves no names.
+
+## Child processes (`coqui_transport::process`, feature `process`)
+
+```rust
+pub struct Launch;                          // Clone, Default, PartialEq, Eq, Display, must_use; Debug names the environment's variables, never their values
+impl Launch {
+    pub fn new(program: impl AsRef<OsStr>) -> Self;                 // run directly, never through a shell; found on PATH when it names no directory
+    pub fn arg(self, arg: impl AsRef<OsStr>) -> Self;  pub fn args(self, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Self;
+    pub fn cwd(self, cwd: impl AsRef<Path>) -> Self;
+    pub fn env(self, name: impl AsRef<OsStr>, value: impl AsRef<OsStr>) -> Self;  pub fn remove_env(self, name: impl AsRef<OsStr>) -> Self;
+    pub const fn clear_env(self, clear: bool) -> Self;              // an empty environment; `env` still adds
+    pub fn program(&self) -> &OsStr;  pub fn arguments(&self) -> &[OsString];
+}
+pub struct Exit { pub code: Option<i32>, pub signal: Option<i32> }   // non_exhaustive, Copy, Eq, Hash, Display ("exited with code 3", "was ended by signal 9")
+impl Exit { pub const fn success(&self) -> bool }                    // code 0
+
+#[non_exhaustive] pub enum ErrorOutput { Capture, Inherit, Discard }  // Leaf: `capture`, `inherit`, `discard`
+#[non_exhaustive] pub struct ProcessSettings { pub stderr: ErrorOutput, pub stderr_tail: usize, pub console: bool }   // coqui_builder::Describe; Default
+impl ProcessSettings { pub const fn new() -> Self; pub fn non_defaults(&self) -> Vec<NonDefault>; }
+impl Process { pub const DEFAULT_STDERR_TAIL: usize; }              // 64 KiB: the newest bytes of standard error kept; `console` default false
+
+// Derived by coqui_builder::Builder from ProcessParts (settings + input `launch`). The setters are its inherent methods.
+impl ProcessBuilder {
+    pub fn new() -> Self;  pub fn launch(self, launch: Launch) -> Self;           // required
+    pub fn stderr(self, e: ErrorOutput) -> Self; pub fn stderr_tail(self, bytes: usize) -> Self; pub fn console(self, on: bool) -> Self;
+    pub fn fill(self, settings: Partial<ProcessSettings>) -> Self;  pub fn non_defaults(&self) -> Vec<NonDefault>;
+    pub fn build(self) -> Result<Process, BuildError<io::Error>>;   // starts the process
+}
+
+pub struct Process;                         // Debug, must_use: a started process, its standard input and output not yet taken
+impl Process {
+    pub fn start(launch: Launch) -> io::Result<Self>;               // default settings
+    pub fn id(&self) -> u32;  pub fn control(&self) -> Control;  pub fn diagnostics(&self) -> Diagnostics;
+}
+impl Split for Process { type Reader = ChildStdout; type Writer = ChildStdin; }   // the interrupt is Control::kill
+
+pub struct Control;                         // Clone, Debug: shares the process; it ends with its tree when the last handle (Process, Control, a channel on it) drops
+impl Control {
+    pub fn id(&self) -> u32;
+    pub fn try_wait(&self) -> io::Result<Option<Exit>>;
+    pub fn wait(&self, timeout: Option<Duration>) -> io::Result<Option<Exit>>;     // None: still running after timeout
+    pub fn kill(&self) -> io::Result<()>;                           // the whole tree, then collects it; repeatable
+    pub fn end(&self, grace: Duration) -> io::Result<Exit>;        // up to `grace` to end by itself, then kill; the status
+    pub fn diagnostics(&self) -> Diagnostics;
+}
+pub struct Diagnostics;                     // Clone, Debug: the standard error capture
+impl Diagnostics { pub fn tail(&self) -> Vec<u8>;  pub fn text(&self) -> String;  pub fn received(&self) -> u64;
+                   pub fn dropped(&self) -> u64;  pub fn ended(&self) -> bool; }
+
+pub struct Connector;                       // Clone, Debug, must_use
+impl Connector { pub fn new(launch: Launch) -> Self;  pub const fn settings(self, s: ProcessSettings) -> Self;  pub const fn launch(&self) -> &Launch; }
+impl coqui_transport::Connector for process::Connector { type Connection = Process; type Error = io::Error; }
+```
+
+`Process::start` runs the program with standard input and output piped and standard error per `stderr`: `capture` (default) drains it
+on a thread of its own into the newest `stderr_tail` bytes (older bytes are counted in `dropped`; 0 keeps none), so a child that logs
+is never held up and nothing it logs reaches the protocol stream; `inherit` is this process's standard error; `discard` is nowhere.
+Standard error is never merged into standard output. `console` (Windows, default off) says whether a console child gets a window of
+its own. The pipes are binary on every platform. A child that writes through a C runtime's text-mode standard output on Windows
+translates newlines itself, which this crate cannot change from outside.
+
+The whole tree: on Windows the child is in a job object that ends every process in it when its handle closes, which the system also
+does when this process ends; a process the child starts in the instant before it joins the job is outside it. On Unix the child leads a
+process group that `kill` signals with `SIGKILL`; on Linux and Android `kill` first stops, then kills, every descendant found through
+`/proc`, those that left the group or session included. A Unix tree is left running if this process dies without running destructors:
+the children read the end of their standard input. `try_wait` on Unix leaves an ended child uncollected (so its group can still be
+signalled) until `kill`, `end` or the last drop; Windows and the Unix targets without `waitid` (OpenBSD, Cygwin) collect on a
+successful `try_wait`. `kill` on a collected process on Unix signals nothing, and on Windows still closes the job.
+
+Closing a `StreamChannel` made from a `Process` drops the child's input (it reads the end), waits for its output to end or for the
+channel's `linger` of silence, then calls the interrupt, which kills the whole tree: raise `linger` to the time a child may need to shut
+down. `Connector::connect` starts on a thread and gives up waiting after `timeout` (`TimedOut`, and a process that starts late is
+ended); a zero timeout is `InvalidInput`. Not an authenticated peer: whoever the program is, a proof still runs over the channel.
 
 ## Async (`coqui_transport::asynch`, feature `tokio`)
 

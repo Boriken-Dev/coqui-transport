@@ -171,6 +171,98 @@ pub fn coqui_transport::prelude::StreamChannelSettingsSetters::pending(self, usi
 pub fn coqui_transport::prelude::StreamChannelSettingsSetters::queued_bytes(self, usize) -> Self
 pub fn coqui_transport::prelude::StreamChannelSettingsSetters::read_buffer(self, usize) -> Self
 pub fn coqui_transport::prelude::StreamChannelSettingsSetters::send_limit(self, impl core::convert::Into<core::time::Duration>) -> Self
+pub mod coqui_transport::process
+#[non_exhaustive] pub enum coqui_transport::process::ErrorOutput
+pub coqui_transport::process::ErrorOutput::Capture
+pub coqui_transport::process::ErrorOutput::Discard
+pub coqui_transport::process::ErrorOutput::Inherit
+pub struct coqui_transport::process::Connector
+impl coqui_transport::process::Connector
+pub const fn coqui_transport::process::Connector::launch(&self) -> &coqui_transport::process::Launch
+pub fn coqui_transport::process::Connector::new(coqui_transport::process::Launch) -> Self
+pub const fn coqui_transport::process::Connector::settings(self, coqui_transport::process::ProcessSettings) -> Self
+impl coqui_transport::Connector for coqui_transport::process::Connector
+pub type coqui_transport::process::Connector::Connection = coqui_transport::process::Process
+pub type coqui_transport::process::Connector::Error = core::io::error::Error
+pub fn coqui_transport::process::Connector::connect(&self, core::time::Duration) -> core::io::error::Result<coqui_transport::process::Process>
+pub struct coqui_transport::process::Control
+impl coqui_transport::process::Control
+pub fn coqui_transport::process::Control::diagnostics(&self) -> coqui_transport::process::Diagnostics
+pub fn coqui_transport::process::Control::end(&self, core::time::Duration) -> core::io::error::Result<coqui_transport::process::Exit>
+pub fn coqui_transport::process::Control::id(&self) -> u32
+pub fn coqui_transport::process::Control::kill(&self) -> core::io::error::Result<()>
+pub fn coqui_transport::process::Control::try_wait(&self) -> core::io::error::Result<core::option::Option<coqui_transport::process::Exit>>
+pub fn coqui_transport::process::Control::wait(&self, core::option::Option<core::time::Duration>) -> core::io::error::Result<core::option::Option<coqui_transport::process::Exit>>
+pub struct coqui_transport::process::Diagnostics
+impl coqui_transport::process::Diagnostics
+pub fn coqui_transport::process::Diagnostics::dropped(&self) -> u64
+pub fn coqui_transport::process::Diagnostics::ended(&self) -> bool
+pub fn coqui_transport::process::Diagnostics::received(&self) -> u64
+pub fn coqui_transport::process::Diagnostics::tail(&self) -> alloc::vec::Vec<u8>
+pub fn coqui_transport::process::Diagnostics::text(&self) -> alloc::string::String
+#[non_exhaustive] pub struct coqui_transport::process::Exit
+pub coqui_transport::process::Exit::code: core::option::Option<i32>
+pub coqui_transport::process::Exit::signal: core::option::Option<i32>
+impl coqui_transport::process::Exit
+pub const fn coqui_transport::process::Exit::success(&self) -> bool
+impl core::fmt::Display for coqui_transport::process::Exit
+pub fn coqui_transport::process::Exit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct coqui_transport::process::Launch
+impl coqui_transport::process::Launch
+pub fn coqui_transport::process::Launch::arg(self, impl core::convert::AsRef<std::ffi::os_str::OsStr>) -> Self
+pub fn coqui_transport::process::Launch::args(self, impl core::iter::traits::collect::IntoIterator<Item = impl core::convert::AsRef<std::ffi::os_str::OsStr>>) -> Self
+pub fn coqui_transport::process::Launch::arguments(&self) -> &[std::ffi::os_str::OsString]
+pub const fn coqui_transport::process::Launch::clear_env(self, bool) -> Self
+pub fn coqui_transport::process::Launch::cwd(self, impl core::convert::AsRef<std::path::Path>) -> Self
+pub fn coqui_transport::process::Launch::env(self, impl core::convert::AsRef<std::ffi::os_str::OsStr>, impl core::convert::AsRef<std::ffi::os_str::OsStr>) -> Self
+pub fn coqui_transport::process::Launch::new(impl core::convert::AsRef<std::ffi::os_str::OsStr>) -> Self
+pub fn coqui_transport::process::Launch::program(&self) -> &std::ffi::os_str::OsStr
+pub fn coqui_transport::process::Launch::remove_env(self, impl core::convert::AsRef<std::ffi::os_str::OsStr>) -> Self
+impl core::fmt::Debug for coqui_transport::process::Launch
+pub fn coqui_transport::process::Launch::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for coqui_transport::process::Launch
+pub fn coqui_transport::process::Launch::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct coqui_transport::process::Process
+impl coqui_transport::process::Process
+pub const coqui_transport::process::Process::DEFAULT_STDERR_TAIL: usize
+impl coqui_transport::process::Process
+pub fn coqui_transport::process::Process::control(&self) -> coqui_transport::process::Control
+pub fn coqui_transport::process::Process::diagnostics(&self) -> coqui_transport::process::Diagnostics
+pub fn coqui_transport::process::Process::id(&self) -> u32
+pub fn coqui_transport::process::Process::start(coqui_transport::process::Launch) -> core::io::error::Result<Self>
+impl coqui_transport::Split for coqui_transport::process::Process
+pub type coqui_transport::process::Process::Reader = std::process::ChildStdout
+pub type coqui_transport::process::Process::Writer = std::process::ChildStdin
+pub fn coqui_transport::process::Process::split(self) -> core::io::error::Result<coqui_transport::Halves<std::process::ChildStdout, std::process::ChildStdin>>
+impl core::convert::TryFrom<coqui_transport::process::ProcessParts> for coqui_transport::process::Process
+pub type coqui_transport::process::Process::Error = core::io::error::Error
+pub fn coqui_transport::process::Process::try_from(coqui_transport::process::ProcessParts) -> core::io::error::Result<Self>
+pub struct coqui_transport::process::ProcessBuilder where coqui_transport::process::ProcessSettings: coqui_builder::describe::Describe
+impl coqui_transport::process::ProcessBuilder where coqui_transport::process::ProcessSettings: coqui_builder::describe::Describe
+pub fn coqui_transport::process::ProcessBuilder::build(self) -> core::result::Result<coqui_transport::process::Process, coqui_builder::builder::BuildError<<coqui_transport::process::Process as core::convert::TryFrom<coqui_transport::process::ProcessParts>>::Error>>
+pub fn coqui_transport::process::ProcessBuilder::fill(self, coqui_builder::partial::Partial<coqui_transport::process::ProcessSettings>) -> Self
+pub fn coqui_transport::process::ProcessBuilder::fill_from(self, &mut impl coqui_builder::source::Source) -> core::result::Result<Self, coqui_builder::fill::FillError>
+pub fn coqui_transport::process::ProcessBuilder::launch(self, impl core::convert::Into<coqui_transport::process::Launch>) -> Self
+pub fn coqui_transport::process::ProcessBuilder::parts(self) -> core::result::Result<coqui_transport::process::ProcessParts, coqui_builder::partial::Missing>
+impl coqui_transport::process::ProcessBuilder where coqui_transport::process::ProcessSettings: coqui_builder::describe::Describe
+pub fn coqui_transport::process::ProcessBuilder::new() -> Self
+pub struct coqui_transport::process::ProcessParts
+impl core::convert::TryFrom<coqui_transport::process::ProcessParts> for coqui_transport::process::Process
+pub type coqui_transport::process::Process::Error = core::io::error::Error
+pub fn coqui_transport::process::Process::try_from(coqui_transport::process::ProcessParts) -> core::io::error::Result<Self>
+#[non_exhaustive] pub struct coqui_transport::process::ProcessSettings
+pub coqui_transport::process::ProcessSettings::console: bool
+pub coqui_transport::process::ProcessSettings::stderr: coqui_transport::process::ErrorOutput
+pub coqui_transport::process::ProcessSettings::stderr_tail: usize
+impl coqui_transport::process::ProcessSettings
+pub const fn coqui_transport::process::ProcessSettings::new() -> Self
+pub fn coqui_transport::process::ProcessSettings::non_defaults(&self) -> alloc::vec::Vec<coqui_builder::non_default::NonDefault>
+impl core::default::Default for coqui_transport::process::ProcessSettings
+pub fn coqui_transport::process::ProcessSettings::default() -> Self
+pub trait coqui_transport::process::ProcessSettingsSetters: coqui_builder::builder::Holds<coqui_transport::process::ProcessSettings> + core::marker::Sized
+pub fn coqui_transport::process::ProcessSettingsSetters::console(self, bool) -> Self
+pub fn coqui_transport::process::ProcessSettingsSetters::stderr(self, impl core::convert::Into<coqui_transport::process::ErrorOutput>) -> Self
+pub fn coqui_transport::process::ProcessSettingsSetters::stderr_tail(self, usize) -> Self
 pub mod coqui_transport::stdio
 pub fn coqui_transport::stdio::current() -> coqui_transport::Duplex<std::io::stdio::Stdin, std::io::stdio::Stdout>
 pub mod coqui_transport::tcp
@@ -380,6 +472,10 @@ pub trait coqui_transport::Connector
 pub type coqui_transport::Connector::Connection
 pub type coqui_transport::Connector::Error: core::error::Error
 pub fn coqui_transport::Connector::connect(&self, core::time::Duration) -> core::result::Result<Self::Connection, Self::Error>
+impl coqui_transport::Connector for coqui_transport::process::Connector
+pub type coqui_transport::process::Connector::Connection = coqui_transport::process::Process
+pub type coqui_transport::process::Connector::Error = core::io::error::Error
+pub fn coqui_transport::process::Connector::connect(&self, core::time::Duration) -> core::io::error::Result<coqui_transport::process::Process>
 impl coqui_transport::Connector for coqui_transport::tcp::Connector
 pub type coqui_transport::tcp::Connector::Connection = std::net::tcp::TcpStream
 pub type coqui_transport::tcp::Connector::Error = core::io::error::Error
@@ -407,6 +503,10 @@ impl coqui_transport::Split for coqui_transport::memory::Stream
 pub type coqui_transport::memory::Stream::Reader = coqui_transport::memory::ReadHalf
 pub type coqui_transport::memory::Stream::Writer = coqui_transport::memory::WriteHalf
 pub fn coqui_transport::memory::Stream::split(self) -> core::io::error::Result<coqui_transport::Halves<coqui_transport::memory::ReadHalf, coqui_transport::memory::WriteHalf>>
+impl coqui_transport::Split for coqui_transport::process::Process
+pub type coqui_transport::process::Process::Reader = std::process::ChildStdout
+pub type coqui_transport::process::Process::Writer = std::process::ChildStdin
+pub fn coqui_transport::process::Process::split(self) -> core::io::error::Result<coqui_transport::Halves<std::process::ChildStdout, std::process::ChildStdin>>
 impl coqui_transport::Split for std::net::tcp::TcpStream
 pub type std::net::tcp::TcpStream::Reader = std::net::tcp::TcpStream
 pub type std::net::tcp::TcpStream::Writer = coqui_transport::tcp::WriteHalf

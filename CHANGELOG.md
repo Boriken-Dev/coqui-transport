@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Feature `process`, module `process`: a child process with piped standard streams as a stream. `Launch` (program, arguments, working directory, environment), `Process::start` and `ProcessBuilder` (settings `stderr`, `stderr_tail`, `console`; the `launch` as the required input), `Process` as a `Split` whose interrupt ends the child's whole tree, `Control` (`try_wait`, `wait`, `kill`, `end`), `Exit`, `Diagnostics` (the newest bytes of standard error, counted), `Connector`. The tree ends together: a job object on Windows, a process group on Unix (and every descendant found through `/proc` on Linux). Standard error is drained on its own thread, bounded, and never merged into the protocol stream. Dependencies behind the feature: `rustix` on Unix, `win32job` on Windows.
 - `Channel`, `Datagrams` and `Delivery` (`Unreliable`, `OverStream`), with the methods and meaning
   they have in `coqui-web-channel` 0.0.0-alpha.0, and two provided methods on `Channel`:
   `capabilities`, which reports what carries the messages, the limits as they stand and the
