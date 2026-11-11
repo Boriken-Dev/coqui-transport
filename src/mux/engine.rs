@@ -2,8 +2,11 @@
 
 use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, VecDeque};
+use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::panic::AssertUnwindSafe;
 use core::time::Duration;
+use std::panic::catch_unwind;
 use std::sync::{Condvar, Mutex, MutexGuard};
 use std::time::Instant;
 
@@ -19,6 +22,14 @@ const POLL: Duration = Duration::from_millis(250);
 /// What a queued frame counts beyond its bytes.
 const COST: usize = 64;
 
+/// The bytes a frame adds to its payload in this framing.
+pub(super) const fn overhead(framing: Framing) -> usize {
+    match framing {
+        Framing::Tagged => 1,
+        _ => OVERHEAD,
+    }
+}
+
 /// The settings the engine runs on, normalized.
 #[derive(Clone, Copy)]
 pub(super) struct Config {
@@ -27,6 +38,9 @@ pub(super) struct Config {
     pub(super) max_message: usize,
     pub(super) pending: usize,
     pub(super) queued_bytes: usize,
+    pub(super) received_bytes: usize,
+    pub(super) unopened_bytes: usize,
+    pub(super) max_damaged: usize,
     pub(super) send_limit: Duration,
     pub(super) max_datagram: usize,
     pub(super) datagram_queue: usize,
@@ -35,16 +49,21 @@ pub(super) struct Config {
 }
 
 impl Config {
-    pub(super) fn new(settings: MuxSettings) -> Self {
+    /// The settings made ready; `max_message` is the setting already fitted to the carrier.
+    pub(super) fn new(settings: MuxSettings, max_message: usize) -> Self {
         Self {
             framing: settings.framing,
             channels: match settings.framing {
                 Framing::Tagged => 1,
                 _ => settings.channels.clamp(1, 1 << 16),
             },
-            max_message: settings.max_message,
+            max_message,
             pending: settings.pending.max(1),
             queued_bytes: settings.queued_bytes,
+            received_bytes: settings.received_bytes,
+            // Numbers nobody has taken may hold at most a quarter of what is received.
+            unopened_bytes: settings.unopened_bytes.min(settings.received_bytes / 4),
+            max_damaged: settings.max_damaged.max(1),
             send_limit: settings.send_limit,
             max_datagram: settings.max_datagram,
             datagram_queue: settings.datagram_queue.max(1),
@@ -59,6 +78,8 @@ struct Slot {
     opened: bool,
     messages: VecDeque<Vec<u8>>,
     datagrams: VecDeque<Vec<u8>>,
+    /// Bytes of messages and datagrams held for `receive`.
+    held: usize,
     pending: usize,
     max_send: usize,
     max_receive: usize,
@@ -66,7 +87,7 @@ struct Slot {
     receive_sequence: u32,
     datagram_send: u32,
     datagram_receive: u32,
-    /// Closed here, or failed: nothing more is sent.
+    /// Closed here, or failed after being taken: nothing more is sent.
     local_closed: bool,
     /// The peer's close arrived: nothing more arrives.
     peer_closed: bool,
@@ -80,6 +101,7 @@ impl Slot {
             opened: false,
             messages: VecDeque::new(),
             datagrams: VecDeque::new(),
+            held: 0,
             pending: config.pending,
             max_send: config.max_message,
             max_receive: config.max_message,
@@ -93,6 +115,11 @@ impl Slot {
             dropped: 0,
         }
     }
+
+    /// Nothing more arrives for this channel, and nothing sent to it is taken.
+    fn ended(&self) -> bool {
+        self.local_closed || self.peer_closed || self.failed.is_some()
+    }
 }
 
 struct State {
@@ -103,14 +130,27 @@ struct State {
     /// Datagrams waiting for the writer: the channel and the payload.
     datagrams: VecDeque<(u16, Vec<u8>)>,
     queued: usize,
+    /// Bytes of messages held for `receive` across every channel.
+    received: usize,
+    /// Bytes of datagrams held for `receive` across every channel.
+    datagram_bytes: usize,
+    /// Of both, the bytes held for numbers nobody has taken.
+    unopened: usize,
     /// The writer's next pick is a datagram, so neither kind starves the other.
     datagram_turn: bool,
     /// This side is closing.
     closing: bool,
     /// The carrier ended: orderly (`Some(None)`) or by a failure.
     ended: Option<Option<Failure>>,
+    /// A thread has started closing the carrier.
+    carrier_closing: bool,
+    carrier_closed: bool,
     reader_done: bool,
     writer_done: bool,
+    /// A frame with a good checksum has arrived.
+    valid_seen: bool,
+    /// Frames with a bad checksum since the last good one.
+    damaged_run: usize,
     corrupt: u64,
     lost: u64,
 }
@@ -121,6 +161,36 @@ impl State {
         self.slots
             .entry(number)
             .or_insert_with(|| Slot::new(&config))
+    }
+
+    /// Accounts for `bytes` now held for `number`.
+    fn hold(&mut self, number: u16, bytes: usize, datagram: bool) {
+        let slot = self.slot(number);
+        slot.held = slot.held.saturating_add(bytes);
+        let opened = slot.opened;
+        if datagram {
+            self.datagram_bytes = self.datagram_bytes.saturating_add(bytes);
+        } else {
+            self.received = self.received.saturating_add(bytes);
+        }
+        if !opened {
+            self.unopened = self.unopened.saturating_add(bytes);
+        }
+    }
+
+    /// Accounts for `bytes` taken from what is held for `number`.
+    fn release(&mut self, number: u16, bytes: usize, datagram: bool) {
+        let slot = self.slot(number);
+        slot.held = slot.held.saturating_sub(bytes);
+        let opened = slot.opened;
+        if datagram {
+            self.datagram_bytes = self.datagram_bytes.saturating_sub(bytes);
+        } else {
+            self.received = self.received.saturating_sub(bytes);
+        }
+        if !opened {
+            self.unopened = self.unopened.saturating_sub(bytes);
+        }
     }
 
     /// Closes a logical channel from this side, writing the close frame in the versioned framing.
@@ -139,10 +209,15 @@ impl State {
         }
     }
 
-    /// Ends one logical channel with a failure, telling the peer by a close.
+    /// Ends one logical channel with a failure. A channel that was taken tells the peer by a close;
+    /// a number nobody has taken only remembers the failure, so it can still be taken and then
+    /// reports it.
     fn fail_slot(&mut self, number: u16, failure: Failure) {
-        self.slot(number).failed = Some(failure);
-        self.close_slot(number);
+        let slot = self.slot(number);
+        slot.failed = Some(failure);
+        if slot.opened {
+            self.close_slot(number);
+        }
     }
 
     fn over(&self) -> bool {
@@ -160,7 +235,7 @@ pub(super) struct Engine {
     space: Condvar,
     /// Something to write, or closing: the writer waits here.
     outbox: Condvar,
-    /// A thread finished.
+    /// A thread finished, or the carrier closed.
     exited: Condvar,
 }
 
@@ -177,11 +252,18 @@ impl Engine {
                 frames: VecDeque::new(),
                 datagrams: VecDeque::new(),
                 queued: 0,
+                received: 0,
+                datagram_bytes: 0,
+                unopened: 0,
                 datagram_turn: false,
                 closing: false,
                 ended: None,
+                carrier_closing: false,
+                carrier_closed: false,
                 reader_done: false,
                 writer_done: false,
+                valid_seen: false,
+                damaged_run: 0,
                 corrupt: 0,
                 lost: 0,
             }),
@@ -196,25 +278,6 @@ impl Engine {
         locked(&self.state).config
     }
 
-    /// Raises the carrier's own bounds to admit a frame holding the largest message, when it says
-    /// what they are and they are lower. It never lowers one.
-    pub(super) fn admit(&self, send: usize, receive: usize) {
-        let capabilities = self.carrier.capabilities();
-        let (send, receive) = (
-            send.saturating_add(OVERHEAD),
-            receive.saturating_add(OVERHEAD),
-        );
-        if capabilities.max_send.is_some_and(|bound| bound < send) {
-            self.carrier.set_max_send(send);
-        }
-        if capabilities
-            .max_receive
-            .is_some_and(|bound| bound < receive)
-        {
-            self.carrier.set_max_receive(receive);
-        }
-    }
-
     fn wake_all(&self) {
         self.inbox.notify_all();
         self.space.notify_all();
@@ -222,7 +285,7 @@ impl Engine {
         self.exited.notify_all();
     }
 
-    /// Takes a logical channel's number; `false` when it was taken before.
+    /// Takes a logical channel's number.
     pub(super) fn open(&self, number: u16) -> Result<(), super::OpenError> {
         let mut state = locked(&self.state);
         if usize::from(number) >= state.config.channels {
@@ -236,6 +299,8 @@ impl Engine {
             return Err(super::OpenError::InUse);
         }
         slot.opened = true;
+        let held = slot.held;
+        state.unopened = state.unopened.saturating_sub(held);
         Ok(())
     }
 
@@ -249,8 +314,35 @@ impl Engine {
 
     // ----- the end -----
 
+    /// Starts closing the carrier, once, on a thread of its own: a carrier's close can wait for its
+    /// peer for as long as the carrier's own limit, and nothing here waits longer than the
+    /// multiplexer's.
+    fn close_carrier(self: &Arc<Self>) {
+        {
+            let mut state = locked(&self.state);
+            if state.carrier_closing {
+                return;
+            }
+            state.carrier_closing = true;
+        }
+        let closing = Arc::clone(self);
+        let work = move || {
+            closing.carrier.close();
+            locked(&closing.state).carrier_closed = true;
+            closing.exited.notify_all();
+        };
+        let spawned = std::thread::Builder::new()
+            .name("coqui-transport mux closer".into())
+            .spawn(work);
+        if spawned.is_err() {
+            self.carrier.close();
+            locked(&self.state).carrier_closed = true;
+            self.exited.notify_all();
+        }
+    }
+
     /// The carrier failed, or a frame broke the wire: everything ends, and the carrier is closed.
-    fn fail(&self, failure: Failure) {
+    fn fail(self: &Arc<Self>, failure: Failure) {
         {
             let mut state = locked(&self.state);
             if state.ended.is_none() {
@@ -261,11 +353,11 @@ impl Engine {
             state.queued = 0;
         }
         self.wake_all();
-        self.carrier.close();
+        self.close_carrier();
     }
 
     /// The carrier ended in order.
-    fn finish(&self) {
+    fn finish(self: &Arc<Self>) {
         {
             let mut state = locked(&self.state);
             if state.ended.is_none() {
@@ -276,12 +368,14 @@ impl Engine {
             state.queued = 0;
         }
         self.wake_all();
-        self.carrier.close();
+        self.close_carrier();
     }
 
     /// Closes everything from this side: every logical channel, what is queued written, the carrier
-    /// closed, both threads joined by the caller afterwards.
-    pub(super) fn shutdown(&self) {
+    /// closed, both threads ended, all within the send limit from now. A thread or a carrier close
+    /// still running then is left to end by itself.
+    pub(super) fn shutdown(self: &Arc<Self>) {
+        let until = deadline::after(self.config().send_limit);
         {
             let mut state = locked(&self.state);
             state.closing = true;
@@ -296,36 +390,21 @@ impl Engine {
             }
         }
         self.wake_all();
-        let until = deadline::after(self.config().send_limit);
-        let mut state = locked(&self.state);
-        while !state.writer_done && !deadline::passed(until) {
-            state = wait_until(&self.exited, state, until);
-        }
-        drop(state);
-        self.carrier.close();
+        self.wait_for(until, |state| state.writer_done);
+        self.close_carrier();
+        self.wait_for(until, |state| state.carrier_closed);
+        self.wait_for(until, |state| state.reader_done);
         self.wake_all();
     }
 
-    /// Waits for a thread to finish, for at most the send limit.
-    pub(super) fn wait_exit(&self, reader: bool) -> bool {
-        let until = deadline::after(self.config().send_limit);
+    fn wait_for(&self, until: Option<Instant>, done: impl Fn(&State) -> bool) {
         let mut state = locked(&self.state);
-        while !(if reader {
-            state.reader_done
-        } else {
-            state.writer_done
-        }) && !deadline::passed(until)
-        {
+        while !done(&state) && !deadline::passed(until) {
             state = wait_until(&self.exited, state, until);
-        }
-        if reader {
-            state.reader_done
-        } else {
-            state.writer_done
         }
     }
 
-    fn mark_done(&self, reader: bool) {
+    pub(super) fn mark_done(&self, reader: bool) {
         {
             let mut state = locked(&self.state);
             if reader {
@@ -339,12 +418,14 @@ impl Engine {
 
     // ----- the reader -----
 
-    pub(super) fn read_loop(&self) {
-        self.read_frames();
+    pub(super) fn read_loop(self: &Arc<Self>) {
+        if catch_unwind(AssertUnwindSafe(|| self.read_frames())).is_err() {
+            self.fail(Failure::Cancelled);
+        }
         self.mark_done(true);
     }
 
-    fn read_frames(&self) {
+    fn read_frames(self: &Arc<Self>) {
         loop {
             if locked(&self.state).closing {
                 return;
@@ -371,22 +452,37 @@ impl Engine {
 
     /// Takes one message of the carrier. An error is a breach of the wire that ends everything.
     fn accept(&self, bytes: &[u8]) -> Result<(), Failure> {
-        let (kind, number, sequence, payload) = match self.config().framing {
+        let framing = self.config().framing;
+        let (kind, number, sequence, payload) = match framing {
             Framing::Tagged => match bytes.split_first() {
                 Some((&tagged::MESSAGE, rest)) => (Kind::Message, 0, None, rest.to_vec()),
                 Some((&tagged::DATAGRAM, rest)) => (Kind::Datagram, 0, None, rest.to_vec()),
                 _ => return Err(Failure::Protocol),
             },
             _ => match Frame::decode(bytes) {
-                Ok(frame) => (
-                    frame.kind,
-                    frame.channel,
-                    Some(frame.sequence),
-                    frame.payload,
-                ),
+                Ok(frame) => {
+                    let mut state = locked(&self.state);
+                    state.valid_seen = true;
+                    state.damaged_run = 0;
+                    drop(state);
+                    (
+                        frame.kind,
+                        frame.channel,
+                        Some(frame.sequence),
+                        frame.payload,
+                    )
+                }
                 Err(DecodeError::Checksum) => {
-                    locked(&self.state).corrupt += 1;
-                    return Ok(());
+                    let mut state = locked(&self.state);
+                    state.corrupt = state.corrupt.saturating_add(1);
+                    state.damaged_run += 1;
+                    // Damage before any good frame is a peer that is not framed; a long run of it is
+                    // a link that is not carrying the stream.
+                    return if !state.valid_seen || state.damaged_run >= state.config.max_damaged {
+                        Err(Failure::Protocol)
+                    } else {
+                        Ok(())
+                    };
                 }
                 Err(_) => return Err(Failure::Protocol),
             },
@@ -399,6 +495,9 @@ impl Engine {
             Kind::Message => self.accept_message(state, number, sequence, payload),
             Kind::Close => {
                 let slot = state.slot(number);
+                if slot.ended() {
+                    return Ok(());
+                }
                 let expected = slot.receive_sequence;
                 if sequence.is_some_and(|sequence| sequence != expected) {
                     state.fail_slot(number, Failure::Protocol);
@@ -408,9 +507,9 @@ impl Engine {
                 }
                 drop(state);
                 self.wake_all();
+                Ok(())
             }
             Kind::Datagram => {
-                let config = state.config;
                 let mut lost = 0;
                 if let Some(sequence) = sequence {
                     let slot = state.slot(number);
@@ -420,42 +519,81 @@ impl Engine {
                         lost = u64::from(gap);
                     }
                 }
-                state.lost += lost;
-                let slot = state.slot(number);
-                if slot.local_closed || slot.peer_closed || slot.failed.is_some() {
-                    return Ok(());
-                }
-                if payload.len() > config.max_datagram {
-                    slot.dropped += 1;
-                } else if slot.datagrams.len() >= config.datagram_pending {
-                    slot.dropped += 1;
-                    if config.datagram_drop == DatagramDrop::Oldest {
-                        slot.datagrams.pop_front();
-                        slot.datagrams.push_back(payload);
-                    }
-                } else {
-                    slot.datagrams.push_back(payload);
-                }
+                state.lost = state.lost.saturating_add(lost);
+                Self::keep_datagram(&mut state, number, payload);
                 drop(state);
                 self.inbox.notify_all();
+                Ok(())
             }
         }
-        Ok(())
+    }
+
+    /// Holds a received datagram if the bounds allow, else drops one by the configured rule.
+    fn keep_datagram(state: &mut State, number: u16, payload: Vec<u8>) {
+        let config = state.config;
+        let length = payload.len();
+        let slot = state.slot(number);
+        if slot.ended() {
+            return;
+        }
+        if length > config.max_datagram {
+            slot.dropped += 1;
+            return;
+        }
+        let opened = slot.opened;
+        // Room for one more in this channel's queue.
+        if slot.datagrams.len() >= config.datagram_pending {
+            slot.dropped += 1;
+            if config.datagram_drop == DatagramDrop::Newest {
+                return;
+            }
+            if let Some(oldest) = slot.datagrams.pop_front() {
+                state.release(number, oldest.len(), true);
+            }
+        }
+        // Room in the datagram bytes held for every channel, and for the numbers nobody has taken.
+        let over = |state: &State| {
+            state.datagram_bytes.saturating_add(length) > config.received_bytes
+                || (!opened && state.unopened.saturating_add(length) > config.unopened_bytes)
+        };
+        if over(state) {
+            if config.datagram_drop == DatagramDrop::Oldest {
+                while over(state) {
+                    let slot = state.slot(number);
+                    let Some(oldest) = slot.datagrams.pop_front() else {
+                        break;
+                    };
+                    slot.dropped += 1;
+                    state.release(number, oldest.len(), true);
+                }
+            }
+            if over(state) {
+                state.slot(number).dropped += 1;
+                return;
+            }
+        }
+        state.hold(number, length, true);
+        state.slot(number).datagrams.push_back(payload);
     }
 
     /// One reliable message: checked against the channel's sequence and bound, then held for
-    /// `receive`. A channel whose queue is full holds the reader until its reader takes one, which
-    /// holds back every channel on the carrier: head-of-line blocking.
+    /// `receive`.
+    ///
+    /// A number nobody has taken holds a few bytes and never makes the reader wait; past its budget
+    /// that number fails. A channel that was taken makes the reader wait when it is full or when the
+    /// bytes held for every channel are at their bound, which holds back every channel on the
+    /// carrier: head-of-line blocking.
     fn accept_message<'a>(
         &'a self,
         mut state: MutexGuard<'a, State>,
         number: u16,
         sequence: Option<u32>,
         payload: Vec<u8>,
-    ) {
+    ) -> Result<(), Failure> {
+        let config = state.config;
         let slot = state.slot(number);
-        if slot.local_closed || slot.peer_closed || slot.failed.is_some() {
-            return;
+        if slot.ended() {
+            return Ok(());
         }
         if sequence.is_some_and(|sequence| sequence != slot.receive_sequence)
             || payload.len() > slot.max_receive
@@ -463,22 +601,45 @@ impl Engine {
             state.fail_slot(number, Failure::Protocol);
             drop(state);
             self.wake_all();
-            return;
+            // Without a close frame, a failed channel is the whole link.
+            return if config.framing == Framing::Tagged {
+                Err(Failure::Protocol)
+            } else {
+                Ok(())
+            };
         }
         slot.receive_sequence = slot.receive_sequence.wrapping_add(1);
+        let length = payload.len();
+        if !slot.opened {
+            if state.unopened.saturating_add(length) > config.unopened_bytes {
+                state.fail_slot(number, Failure::Protocol);
+                drop(state);
+                self.wake_all();
+                return Ok(());
+            }
+            state.hold(number, length, false);
+            state.slot(number).messages.push_back(payload);
+            drop(state);
+            self.inbox.notify_all();
+            return Ok(());
+        }
         loop {
             if state.over() {
-                return;
+                return Ok(());
             }
             let slot = state.slot(number);
-            if slot.local_closed || slot.failed.is_some() {
-                return;
+            if slot.ended() {
+                return Ok(());
             }
-            if slot.messages.len() < slot.pending {
-                slot.messages.push_back(payload);
+            let room = slot.messages.len() < slot.pending
+                && (state.received == 0
+                    || state.received.saturating_add(length) <= config.received_bytes);
+            if room {
+                state.hold(number, length, false);
+                state.slot(number).messages.push_back(payload);
                 drop(state);
                 self.inbox.notify_all();
-                return;
+                return Ok(());
             }
             state = wait(&self.space, state);
         }
@@ -486,12 +647,14 @@ impl Engine {
 
     // ----- the writer -----
 
-    pub(super) fn write_loop(&self) {
-        self.write_frames();
+    pub(super) fn write_loop(self: &Arc<Self>) {
+        if catch_unwind(AssertUnwindSafe(|| self.write_frames())).is_err() {
+            self.fail(Failure::Cancelled);
+        }
         self.mark_done(false);
     }
 
-    fn write_frames(&self) {
+    fn write_frames(self: &Arc<Self>) {
         let limit = self.config().send_limit;
         loop {
             let frame = {
@@ -557,7 +720,7 @@ impl Engine {
     pub(super) fn send(&self, number: u16, message: &[u8], wait_for: Wait) -> Result<(), Failure> {
         let mut state = locked(&self.state);
         let config = state.config;
-        let cost = message.len() + OVERHEAD + COST;
+        let cost = message.len() + overhead(config.framing) + COST;
         loop {
             if let Some(failure) = Self::refused(&mut state, number) {
                 return Err(failure);
@@ -618,6 +781,7 @@ impl Engine {
         loop {
             let slot = state.slot(number);
             if let Some(message) = slot.messages.pop_front() {
+                state.release(number, message.len(), false);
                 drop(state);
                 self.space.notify_all();
                 return Ok(Some(message));
@@ -651,8 +815,7 @@ impl Engine {
     pub(super) fn is_closed(&self, number: u16) -> bool {
         let mut state = locked(&self.state);
         let over = state.over();
-        let slot = state.slot(number);
-        over || slot.local_closed || slot.peer_closed || slot.failed.is_some()
+        over || state.slot(number).ended()
     }
 
     pub(super) fn limits(&self, number: u16) -> (usize, usize) {
@@ -661,18 +824,17 @@ impl Engine {
         (slot.max_send, slot.max_receive)
     }
 
+    /// Sets this channel's bounds, never above the multiplexer's, which the carrier admits.
     pub(super) fn set_limits(&self, number: u16, send: Option<usize>, receive: Option<usize>) {
         let mut state = locked(&self.state);
+        let ceiling = state.config.max_message;
         let slot = state.slot(number);
         if let Some(bytes) = send {
-            slot.max_send = bytes;
+            slot.max_send = bytes.min(ceiling);
         }
         if let Some(bytes) = receive {
-            slot.max_receive = bytes;
+            slot.max_receive = bytes.min(ceiling);
         }
-        let (send, receive) = (slot.max_send, slot.max_receive);
-        drop(state);
-        self.admit(send, receive);
     }
 
     pub(super) fn set_pending(&self, number: u16, messages: usize) {
@@ -729,9 +891,12 @@ impl Engine {
         loop {
             let slot = state.slot(number);
             if let Some(payload) = slot.datagrams.pop_front() {
+                state.release(number, payload.len(), true);
+                drop(state);
+                self.space.notify_all();
                 return Ok(Some(payload));
             }
-            if slot.local_closed || slot.peer_closed || slot.failed.is_some() || state.closing {
+            if slot.ended() || state.closing {
                 return Ok(None);
             }
             match state.ended {

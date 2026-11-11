@@ -682,7 +682,7 @@ fn the_defaults_are_the_documented_ones() {
     assert!(settings.non_defaults().is_empty());
     assert_eq!(settings.framing, Framing::Versioned);
     assert_eq!(settings.channels, 16);
-    assert_eq!(settings.max_message, 1024 * 1024);
+    assert_eq!(settings.max_message, 1024 * 1024 - 12);
     assert_eq!(settings.pending, 64);
     assert_eq!(settings.queued_bytes, 16 * 1024 * 1024);
     assert_eq!(settings.send_limit, Duration::from_secs(30));

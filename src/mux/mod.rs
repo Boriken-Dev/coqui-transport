@@ -7,13 +7,23 @@
 //!
 //! **Both ends opt in.** Nothing in the bytes negotiates the frame: both ends are configured for it,
 //! as they are for a [`LengthPrefix`](crate::frame::LengthPrefix). A peer that is not framed is
-//! found by its first message (a wrong version byte is [`Failure::Protocol`]); a damaged frame is
-//! found by its checksum.
+//! found by its first messages: a wrong version byte, a short message, or a checksum that fails
+//! before any frame has passed it is [`Failure::Protocol`], and so is a run of
+//! [`max_damaged`](MuxSettings::max_damaged) failures. A damaged frame among good ones is found by
+//! its checksum.
 //!
 //! **Head-of-line blocking.** Every logical channel and every datagram shares the carrier's one
 //! ordered stream. A large message delays everything behind it, and a channel whose queue is full
 //! (its reader is not reading) holds up the reader of the carrier, so every other channel waits
-//! until it is read. A caller that opens several channels reads all of them.
+//! until it is read. A caller that opens several channels reads all of them. The reader never waits
+//! for a number nobody has taken: those hold a small budget between them
+//! ([`unopened_bytes`](MuxSettings::unopened_bytes)) and a number past it fails.
+//!
+//! **Memory.** What a peer can make this side hold is bounded by settings:
+//! [`received_bytes`](MuxSettings::received_bytes) of messages and as many of datagrams for every
+//! channel, at most a quarter of that more for the numbers nobody has taken, and
+//! [`queued_bytes`](MuxSettings::queued_bytes) and the datagram queue to send; plus what the
+//! carrier itself buffers, which a `StreamChannel` bounds by its own `pending` and `queued_bytes`.
 //!
 //! **Datagrams** never wait: [`Datagrams::send`] only enqueues, and when the queue is full drops the
 //! oldest or the newest (a setting), counted by [`Datagrams::dropped`]. They share the carrier with
@@ -60,11 +70,12 @@ use std::thread::JoinHandle;
 
 use coqui_builder::{Builder, Describe, Leaf, NonDefault};
 
-use self::engine::{Config, Engine};
+use self::engine::{Config, Engine, overhead};
 use crate::capabilities::{Capabilities, Carrier};
 use crate::channel::{Channel, Datagrams, Delivery};
 use crate::deadline;
 use crate::failure::Failure;
+use crate::frame::versioned::OVERHEAD;
 
 /// How frames are laid out in the carrier's messages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Leaf)]
@@ -95,9 +106,12 @@ pub enum DatagramDrop {
 ///
 /// Every limit is a setting with a finite default. Every key is optional and an unknown key is
 /// refused; a duration is a number with an optional unit (`30`, `250ms`). A queue length of 0 is 1.
-/// The carrier's own message bound must admit a frame, `max_message` plus
-/// [`OVERHEAD`](crate::frame::versioned::OVERHEAD) bytes: a carrier that reports a lower bound
-/// ([`Channel::capabilities`]) is raised to it, and never lowered.
+/// The carrier's own bounds decide what fits: a frame is `max_message` plus
+/// [`OVERHEAD`] bytes, so a carrier that reports a lower bound
+/// ([`Channel::capabilities`]) lowers `max_message` to what it admits, and one that cannot hold a
+/// frame is refused at the start. A carrier's bound is never raised. A peer's message over
+/// `max_message` that the carrier let through fails only its channel; one over the carrier's own
+/// bound ends the carrier, which ends the multiplexer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Describe)]
 #[map(deny_unknown_fields)]
 #[builder(setters_on = <T: Channel + 'static> MuxBuilder<T>)]
@@ -110,8 +124,9 @@ pub struct MuxSettings {
     /// breach. At most 65536; [`Framing::Tagged`] has one. Default [`Mux::DEFAULT_CHANNELS`].
     #[map(default = MuxSettings::new().channels)]
     pub channels: usize,
-    /// The largest message of a logical channel, both ways, until a `set_max_` call changes it.
-    /// Default [`Mux::DEFAULT_MAX_MESSAGE`].
+    /// The largest message of a logical channel, both ways; a channel's `set_max_` calls can lower
+    /// it, never raise it. Lowered to what the carrier admits. Default
+    /// [`Mux::DEFAULT_MAX_MESSAGE`], which fits a default `StreamChannel`.
     #[map(default = MuxSettings::new().max_message)]
     pub max_message: usize,
     /// How many received messages a logical channel holds before the reader of the carrier waits
@@ -123,6 +138,24 @@ pub struct MuxSettings {
     /// Default [`Mux::DEFAULT_QUEUED_BYTES`].
     #[map(default = MuxSettings::new().queued_bytes)]
     pub queued_bytes: usize,
+    /// The most bytes of received messages held for `receive`, all channels together, and again the
+    /// most of received datagrams, so datagrams never keep a message out. When messages reach it the
+    /// reader of the carrier waits until a channel is read (head-of-line blocking); a datagram that
+    /// does not fit is dropped by `datagram_drop`. Default
+    /// [`Mux::DEFAULT_RECEIVED_BYTES`].
+    #[map(default = MuxSettings::new().received_bytes)]
+    pub received_bytes: usize,
+    /// The most bytes held for channel numbers nobody has taken yet, all of them together; at most a
+    /// quarter of `received_bytes`. A number that passes it fails (and reports the failure when it is
+    /// taken) instead of making the reader wait. Take the numbers before a peer can send on them.
+    /// Default [`Mux::DEFAULT_UNOPENED_BYTES`].
+    #[map(default = MuxSettings::new().unopened_bytes)]
+    pub unopened_bytes: usize,
+    /// How many frames in a row may fail their checksum before the multiplexer ends with
+    /// [`Failure::Protocol`]; one that fails before any frame has passed ends it at once. 0 is 1.
+    /// Default [`Mux::DEFAULT_MAX_DAMAGED`].
+    #[map(default = MuxSettings::new().max_damaged)]
+    pub max_damaged: usize,
     /// How long the carrier may take none of a frame before the multiplexer ends with
     /// [`Failure::NoProgress`]; also the most a close waits for what is queued. Default
     /// [`Mux::DEFAULT_SEND_LIMIT`].
@@ -155,6 +188,9 @@ impl MuxSettings {
             max_message: Mux::DEFAULT_MAX_MESSAGE,
             pending: Mux::DEFAULT_PENDING,
             queued_bytes: Mux::DEFAULT_QUEUED_BYTES,
+            received_bytes: Mux::DEFAULT_RECEIVED_BYTES,
+            unopened_bytes: Mux::DEFAULT_UNOPENED_BYTES,
+            max_damaged: Mux::DEFAULT_MAX_DAMAGED,
             send_limit: Mux::DEFAULT_SEND_LIMIT,
             max_datagram: Mux::DEFAULT_MAX_DATAGRAM,
             datagram_queue: Mux::DEFAULT_DATAGRAM_QUEUE,
@@ -237,12 +273,13 @@ struct Owner {
 }
 
 impl Owner {
+    /// Closes everything within the send limit; a thread still running after that is left to end by
+    /// itself.
     fn close(&self) {
         self.engine.shutdown();
-        for (slot, reader) in [(&self.writer, false), (&self.reader, true)] {
-            let handle = crate::sync::locked(slot).take();
-            if let Some(handle) = handle
-                && self.engine.wait_exit(reader)
+        for slot in [&self.writer, &self.reader] {
+            if let Some(handle) = crate::sync::locked(slot).take()
+                && handle.is_finished()
             {
                 let _ = handle.join();
             }
@@ -268,12 +305,19 @@ pub struct Mux {
 impl Mux {
     /// The default number of logical channel numbers: 16.
     pub const DEFAULT_CHANNELS: usize = 16;
-    /// The default largest message: 1 MiB.
-    pub const DEFAULT_MAX_MESSAGE: usize = crate::frame::DEFAULT_MAX_MESSAGE;
+    /// The default largest message: 1 MiB less the frame's overhead, so it fits a carrier whose
+    /// bound is 1 MiB, as a default `StreamChannel`'s is.
+    pub const DEFAULT_MAX_MESSAGE: usize = crate::frame::DEFAULT_MAX_MESSAGE - OVERHEAD;
     /// The default number of received messages a channel holds: 64.
     pub const DEFAULT_PENDING: usize = 64;
     /// The default bound on bytes queued to send: 16 MiB.
     pub const DEFAULT_QUEUED_BYTES: usize = 16 * 1024 * 1024;
+    /// The default bound on received bytes held for every channel together: 16 MiB.
+    pub const DEFAULT_RECEIVED_BYTES: usize = 16 * 1024 * 1024;
+    /// The default bound on bytes held for numbers nobody has taken: 64 KiB.
+    pub const DEFAULT_UNOPENED_BYTES: usize = 64 * 1024;
+    /// The default number of frames in a row that may fail their checksum: 8.
+    pub const DEFAULT_MAX_DAMAGED: usize = 8;
     /// The default time the carrier may take none of a frame: 30 s.
     pub const DEFAULT_SEND_LIMIT: Duration = Duration::from_secs(30);
     /// The default largest datagram: 1200 bytes, which also fits an IPv6 minimum-MTU packet, so
@@ -300,7 +344,9 @@ impl Mux {
     ///
     /// As [`start`](Self::start).
     pub fn single<T: Channel + 'static>(carrier: T) -> io::Result<MuxChannel> {
-        let mux = Self::start(carrier)?;
+        let mut settings = MuxSettings::new();
+        settings.channels = 1;
+        let mux = Self::launch(carrier, settings)?;
         mux.channel(0)
             .map_err(|error| io::Error::other(error.to_string()))
     }
@@ -322,9 +368,27 @@ impl Mux {
     }
 
     fn launch<T: Channel + 'static>(carrier: T, settings: MuxSettings) -> io::Result<Self> {
-        let engine = Arc::new(Engine::new(Box::new(carrier), Config::new(settings)));
-        let config = engine.config();
-        engine.admit(config.max_message, config.max_message);
+        // The carrier's own bounds decide: a frame must fit them, so the largest message is lowered to
+        // what they admit, and a carrier that cannot hold a frame is refused.
+        let capabilities = carrier.capabilities();
+        let reserved = overhead(settings.framing);
+        let mut max_message = settings.max_message;
+        for bound in [capabilities.max_send, capabilities.max_receive]
+            .into_iter()
+            .flatten()
+        {
+            if bound <= reserved {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "the carrier's message bound cannot hold a frame",
+                ));
+            }
+            max_message = max_message.min(bound - reserved);
+        }
+        let engine = Arc::new(Engine::new(
+            Box::new(carrier),
+            Config::new(settings, max_message),
+        ));
         let writing = Arc::clone(&engine);
         let writer = std::thread::Builder::new()
             .name("coqui-transport mux writer".into())
@@ -336,6 +400,7 @@ impl Mux {
         let reader = match reader {
             Ok(reader) => reader,
             Err(error) => {
+                engine.mark_done(true);
                 engine.shutdown();
                 let _ = writer.join();
                 return Err(error);
@@ -407,6 +472,13 @@ impl MuxChannel {
         self.number
     }
 
+    /// What the multiplexer has counted of damage so far; the same as [`Mux::counters`], for a
+    /// holder of only this channel.
+    #[must_use]
+    pub fn counters(&self) -> Counters {
+        self.owner.engine.counters()
+    }
+
     fn engine(&self) -> &Engine {
         &self.owner.engine
     }
@@ -436,7 +508,13 @@ impl Channel for MuxChannel {
     }
 
     fn close(&self) {
-        self.engine().close_channel(self.number);
+        if self.engine().config().framing == Framing::Tagged {
+            // The tagged framing has no close frame: the end of the carrier is the end, so the
+            // carrier is flushed and closed.
+            self.owner.close();
+        } else {
+            self.engine().close_channel(self.number);
+        }
     }
 
     fn set_max_message(&self, bytes: usize) {
