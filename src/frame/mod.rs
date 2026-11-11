@@ -19,6 +19,7 @@
 //! beside this one. A protocol's own framing is a preset of a codec, defined where the protocol is.
 
 mod length;
+pub mod versioned;
 
 use alloc::vec::Vec;
 use core::fmt;

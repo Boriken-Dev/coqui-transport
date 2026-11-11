@@ -1,0 +1,124 @@
+{
+  "crc32c_check": {
+    "input": "123456789",
+    "crc": "e3069283"
+  },
+  "version": 1,
+  "frames": [
+    {
+      "name": "an empty message on channel 0",
+      "kind": "message",
+      "channel": 0,
+      "sequence": 0,
+      "payload": "",
+      "frame": "0100000000000000adcf14c5"
+    },
+    {
+      "name": "a short message",
+      "kind": "message",
+      "channel": 1,
+      "sequence": 7,
+      "payload": "68656c6c6f",
+      "frame": "010001000700000068656c6c6f23699b03"
+    },
+    {
+      "name": "a datagram on the highest channel",
+      "kind": "datagram",
+      "channel": 65535,
+      "sequence": 4294967295,
+      "payload": "70696e67",
+      "frame": "0101ffffffffffff70696e6785b40c6f"
+    },
+    {
+      "name": "a close",
+      "kind": "close",
+      "channel": 3,
+      "sequence": 9,
+      "payload": "",
+      "frame": "0102030009000000b994af0a"
+    },
+    {
+      "name": "a message holding every byte value below 200",
+      "kind": "message",
+      "channel": 2,
+      "sequence": 65536,
+      "payload": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7",
+      "frame": "0100020000000100000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c754b97c0c"
+    },
+    {
+      "name": "a message of zero bytes",
+      "kind": "message",
+      "channel": 256,
+      "sequence": 1,
+      "payload": "00000000000000000000000000000000",
+      "frame": "01000001010000000000000000000000000000000000000030a4fd04"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "eleven bytes",
+      "error": "short",
+      "frame": "0100050003000000616263"
+    },
+    {
+      "name": "nothing",
+      "error": "short",
+      "frame": ""
+    },
+    {
+      "name": "version 2",
+      "error": "version:2",
+      "frame": "020005000300000061626365d20545"
+    },
+    {
+      "name": "version 0",
+      "error": "version:0",
+      "frame": "0000050003000000616263164b0a6e"
+    },
+    {
+      "name": "a payload bit flipped",
+      "error": "checksum",
+      "frame": "0100050003000000616363d7bc7bf9"
+    },
+    {
+      "name": "a checksum bit flipped",
+      "error": "checksum",
+      "frame": "0100050003000000616263d7bc7b79"
+    },
+    {
+      "name": "kind 3 with a valid checksum",
+      "error": "kind:3",
+      "frame": "0103050003000000616263c9466da1"
+    },
+    {
+      "name": "kind 255 with a valid checksum",
+      "error": "kind:255",
+      "frame": "01ff050003000000b527e287"
+    },
+    {
+      "name": "a close that carries a payload",
+      "error": "payload",
+      "frame": "0102050003000000788a1132a3"
+    }
+  ],
+  "tagged": [
+    {
+      "name": "a message",
+      "kind": "message",
+      "payload": "6869",
+      "wire": "006869"
+    },
+    {
+      "name": "an empty message",
+      "kind": "message",
+      "payload": "",
+      "wire": "00"
+    },
+    {
+      "name": "a datagram",
+      "kind": "datagram",
+      "payload": "6869",
+      "wire": "016869"
+    }
+  ]
+}
