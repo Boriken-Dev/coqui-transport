@@ -23,6 +23,9 @@ mod sync;
 pub mod asynch;
 pub mod frame;
 pub mod memory;
+#[cfg(feature = "process")]
+#[cfg_attr(docsrs, doc(cfg(feature = "process")))]
+pub mod process;
 pub mod stdio;
 pub mod tcp;
 

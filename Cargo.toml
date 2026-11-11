@@ -23,6 +23,9 @@ default = []
 # `asynch`: the async channel, connector and listener traits, an async `StreamChannel` over tokio's AsyncRead and
 # AsyncWrite, and async TCP.
 tokio = ["dep:tokio"]
+# `process`: a child process with piped standard streams as a stream, whose whole tree ends with it. The operating
+# system's calls come through `rustix` on Unix and `win32job` on Windows, so this crate holds no `unsafe` code.
+process = ["dep:rustix", "dep:win32job"]
 
 [dependencies]
 # Describes, fills and builds the stream channel's settings and its builder; alpha, by revision, as the family pins it.
@@ -30,6 +33,14 @@ coqui-builder = { git = "https://github.com/Boriken-Dev/coqui-builder", rev = "c
 # Async I/O, behind `tokio`: `io-util` for split halves and read/write calls, `net` for TCP, `sync` for the locks a
 # channel's two directions take, `time` for timeouts. No runtime: the caller's runs it.
 tokio = { version = "1", default-features = false, features = ["io-util", "net", "sync", "time"], optional = true }
+
+[target.'cfg(unix)'.dependencies]
+# Signalling a process group and reading a child's exit without collecting it, which std does not offer.
+rustix = { version = "1", default-features = false, features = ["std", "process"], optional = true }
+
+[target.'cfg(windows)'.dependencies]
+# A job object that ends every process in it when its handle closes.
+win32job = { version = "2.0.3", optional = true }
 
 [dev-dependencies]
 # Reads a settings type from the TOML and JSON the tests write: `Partial` deserializes with `serde`.
@@ -49,6 +60,16 @@ required-features = ["tokio"]
 [[test]]
 name = "stdio"
 harness = false
+
+# Starts itself as the children it spawns, which a test harness would give an output of its own.
+[[test]]
+name = "process"
+harness = false
+required-features = ["process"]
+
+[[test]]
+name = "process_settings"
+required-features = ["process"]
 
 [[example]]
 name = "async_tcp"
