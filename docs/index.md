@@ -11,6 +11,8 @@ carried. `coqui-transport` holds what every Coqui transport shares:
 - **a framing codec** that turns a byte stream into messages: `LengthPrefix`, a one-, two- or
   four-byte length, big- or little-endian, empty messages allowed or refused;
 - **`StreamChannel`**, one stream-to-channel adapter for every byte stream, blocking or on tokio;
+- **the versioned frame** and `mux::Mux`: numbered logical channels on one channel, with datagrams that ride
+  inside the stream; see [the versioned frame](frame.md);
 - adapters for **memory**, this process's **standard streams** and **TCP**.
 
 It knows nothing of peers, trust or applications: a channel is never an authenticated peer.

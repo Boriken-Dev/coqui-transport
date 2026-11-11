@@ -27,6 +27,7 @@ theme:
 
 nav:
   - Home: index.md
+  - The versioned frame: frame.md
   - Rust API: https://boriken-dev.github.io/coqui-transport/rust/index.html
 
 markdown_extensions:

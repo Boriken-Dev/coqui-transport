@@ -123,6 +123,8 @@ assert_eq!(channel.receive(Some(Duration::from_secs(5)))?, None);
 | --- | --- |
 | root | `Channel`, `Datagrams`, `Delivery`, `Failure`, `Capabilities`, `Connector`, `Listener`, `Duplex`, `Split`, `StreamChannel` |
 | `frame` | the `Codec` and `Decode` traits and the `LengthPrefix` codec, with no I/O |
+| `frame::versioned` | the versioned frame's bytes: version, kind, channel, sequence, payload, CRC-32C |
+| `mux` | logical channels and over-stream datagrams on one channel, in the versioned frame (or the legacy wrapper) |
 | `memory` | an in-memory stream pair with bounded buffers |
 | `stdio` | this process's standard input and output as one stream |
 | `tcp` | TCP streams, a connector, and `TcpListener` as a listener |
@@ -141,7 +143,11 @@ ordered stream: in order, late rather than lost, and lost only where a queue is 
 
 `LengthPrefix` carries messages and nothing else: a datagram, a logical channel or a version would
 reach a peer as an ordinary message. A framing that carries them is a codec of its own that both
-ends opt into; a connection is never upgraded silently.
+ends opt into; a connection is never upgraded silently. That codec is the versioned frame
+(`frame::versioned`, specified in `docs/frame.md`), and `mux::Mux` runs it: numbered logical channels on one
+channel, each with datagrams that ride inside the stream (`Delivery::OverStream`), enqueued without waiting and
+dropped by a configurable rule when a queue is full. One ordered stream carries everything, so a channel
+nobody reads delays the others. `Mux::legacy` adds datagrams to a legacy-codec link when both ends wrap.
 
 ## Security boundaries
 

@@ -13,7 +13,7 @@ MSRV Rust 1.89. A default build depends on `coqui-builder` (by revision, with it
 any release before 1.0. The default build compiles for `wasm32-unknown-unknown`; `--features tokio` does not (tokio's `net`).
 
 Imports: the root holds `Channel`, `Datagrams`, `Delivery`, `Failure`, `Capabilities`, `Carrier`, `Connector`, `Listener`, `NonDefault`,
-`Duplex`, `Halves`, `Interrupt`, `Split`, `StreamChannel`, `StreamChannelBuilder`, `StreamChannelParts`, `StreamChannelSettings`. Public modules: `prelude`, `frame`, `memory`, `stdio`,
+`Duplex`, `Halves`, `Interrupt`, `Split`, `StreamChannel`, `StreamChannelBuilder`, `StreamChannelParts`, `StreamChannelSettings`. Public modules: `prelude`, `frame` (with `frame::versioned`), `memory`, `mux`, `stdio`,
 `tcp`, `asynch` (feature `tokio`), `process` (feature `process`).
 
 No `unsafe` code (`#![forbid(unsafe_code)]`). No process-wide state. The library prints nothing and starts no runtime; the only
@@ -236,6 +236,64 @@ thread, waiting at most `send_limit` for one, or not at all without an `Interrup
 bound for the next message the reader thread reads, which with read-ahead can be past what `receive` returned.
 
 `start` errors when the stream cannot split or a thread cannot start (any target without threads).
+
+## Versioned frame and multiplexing (`coqui_transport::frame::versioned`, `coqui_transport::mux`)
+
+The frame is specified byte for byte in `docs/frame.md` (in the repository, not the package); vectors in `tests/vectors/versioned_frame.json`,
+made by `tools/frame_vectors.py`. Both ends are configured for it: nothing negotiates it.
+
+```rust
+// frame::versioned: one frame is one message of a Channel. Little-endian: version u8 (=1), kind u8, channel u16, sequence u32, payload, CRC-32C u32 of all before it.
+pub const VERSION: u8 = 1;  pub const HEADER: usize = 8;  pub const TRAILER: usize = 4;  pub const OVERHEAD: usize = 12;
+pub enum Kind { Message /* 0 */, Datagram /* 1 */, Close /* 2 */ }                       // non_exhaustive, Copy; byte(), from_byte(u8)
+pub struct Frame { pub kind: Kind, pub channel: u16, pub sequence: u32, pub payload: Vec<u8> }   // non_exhaustive
+impl Frame { pub fn new(kind, channel, sequence, payload: impl Into<Vec<u8>>) -> Self; pub fn encode(&self) -> Vec<u8>;
+             pub fn decode(bytes: &[u8]) -> Result<Frame, DecodeError>; }              // checks: length, version, checksum, kind, payload
+pub enum DecodeError { Short, Version(u8), Checksum, Kind(u8), Payload }               // non_exhaustive, Copy, Error
+pub fn crc32c(bytes: &[u8]) -> u32;                                                    // check value of "123456789": 0xE3069283
+pub mod tagged { pub const MESSAGE: u8 = 0; pub const DATAGRAM: u8 = 1; }             // the legacy wrapper's one-byte tag
+
+// mux
+pub struct Mux;  pub struct MuxChannel;  // must_use, Debug; dropping the last handle (a Mux or any MuxChannel) closes everything
+impl Mux {
+    pub const DEFAULT_CHANNELS: usize;  /* 16 */      pub const DEFAULT_MAX_MESSAGE: usize;  /* 1 MiB */  pub const DEFAULT_PENDING: usize;  /* 64 */
+    pub const DEFAULT_QUEUED_BYTES: usize;  /* 16 MiB */  pub const DEFAULT_SEND_LIMIT: Duration;  /* 30 s */  pub const DEFAULT_MAX_DATAGRAM: usize;  /* 1200 */
+    pub const DEFAULT_DATAGRAM_QUEUE: usize;  /* 64 */  pub const DEFAULT_DATAGRAM_PENDING: usize;  /* 64 */
+    pub fn start<T: Channel + 'static>(carrier: T) -> io::Result<Mux>;               // default settings; two threads
+    pub fn single<T: Channel + 'static>(carrier: T) -> io::Result<MuxChannel>;        // start, then channel 0
+    pub fn legacy<T: Channel + 'static>(carrier: T) -> io::Result<MuxChannel>;        // the explicit wrapper: Framing::Tagged, one tag byte, both ends wrap
+    pub fn channel(&self, number: u16) -> Result<MuxChannel, OpenError>;              // a number is taken once, never reused
+    pub fn counters(&self) -> Counters;  pub fn close(&self);                         // close: every channel, queue written, carrier closed, threads joined; repeatable
+}
+impl MuxChannel { pub const fn number(&self) -> u16; }                                // implements Channel, with datagrams() = Some, Delivery::OverStream
+pub struct Counters { pub corrupt: u64, pub lost_datagrams: u64 }                      // non_exhaustive; frames dropped for a bad checksum; gaps in the datagram count
+pub enum OpenError { Number, InUse, Closed }                                          // non_exhaustive, Copy, Error
+pub enum Framing { Versioned, Tagged }  pub enum DatagramDrop { Oldest, Newest }      // non_exhaustive, Leaf: lowercase names in text
+// Derived by coqui_builder::Builder from MuxParts<T: Channel + 'static> (settings + input `carrier`); the setters are inherent methods of MuxBuilder<T>.
+impl<T> MuxBuilder<T> { pub fn new() -> Self;  pub fn carrier(self, T) -> Self;
+    pub fn framing / channels / max_message / pending / queued_bytes / send_limit / max_datagram / datagram_queue / datagram_pending / datagram_drop(..) -> Self;
+    pub fn fill(self, Partial<MuxSettings>) -> Self;  pub fn non_defaults(&self) -> Vec<NonDefault>;  pub fn build(self) -> Result<Mux, BuildError<io::Error>>; }
+#[non_exhaustive] pub struct MuxSettings { pub framing, pub channels: usize, pub max_message: usize, pub pending: usize, pub queued_bytes: usize,
+    pub send_limit: Duration, pub max_datagram: usize, pub datagram_queue: usize, pub datagram_pending: usize, pub datagram_drop: DatagramDrop }   // Describe; Default = the DEFAULT_ constants
+```
+
+`Mux::start` takes any `Channel` whose messages are frames, so the carrier's codec delimits them: `StreamChannel` with `LengthPrefix` on a
+byte stream, with `Cobs` on a serial line. A carrier whose `capabilities()` reports a message bound below `max_message + 12` is raised to
+it (never lowered). Each `MuxChannel` is a `Channel`: `send` queues (the queue full is `Failure::NoProgress` with `is_closed()` false;
+`send_timeout` waits), `receive` returns that number's messages in order, then `Ok(None)` after the peer's close.
+
+- **Head-of-line blocking.** One ordered stream carries everything. A channel whose queue (`pending`) is full holds up the reader of the
+  carrier, so every other channel waits until it is read: read every channel you open, or close it.
+- **Datagrams** (`Delivery::OverStream`) never wait: `Datagrams::send` enqueues and returns; past `datagram_queue` the `datagram_drop` one goes
+  (counted per channel by `dropped()`, `Ok` either way); a payload over `max_datagram` is `Failure::Protocol`. Messages and datagrams are
+  written in turn. Received datagrams past `datagram_pending` drop by the same rule.
+- **Damage.** A frame failing its checksum is dropped and counted (`Counters::corrupt`); the next message frame of that channel then skips a
+  sequence number and the channel ends with `Failure::Protocol` (messages before the hole stay readable; the peer gets a close), the others go on.
+  A lost datagram is counted by the gap in the datagram count (`lost_datagrams`).
+- **A breach ends everything** with `Failure::Protocol` and closes the carrier: a frame shorter than 12 bytes, another version, an unknown kind,
+  a close with a payload, a channel number not below `channels`. A message over the receiving bound fails only its channel.
+- **`Mux::legacy`**: for an operator who controls both ends of a legacy-codec link: one byte before every message and datagram (`0`, `1`),
+  one channel, no sequence, checksum or close. Both ends MUST wrap; an unwrapped peer is misread by one byte.
 
 ## Adapters
 

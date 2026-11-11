@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `frame::versioned`: the versioned frame, version 1: version, kind (message, datagram, close), channel (`u16`), sequence (`u32`),
+  payload and a CRC-32C, 12 bytes of overhead, in one message of a `Channel`. `Frame` (`encode`, `decode`), `Kind`, `DecodeError`,
+  `crc32c`, `tagged` (the legacy wrapper's tags), specified in `docs/frame.md` with vectors made in Python.
+- `mux`: `Mux` and `MuxChannel`: numbered logical channels on one `Channel`, both ends configured for the frame (nothing negotiates it),
+  each a `Channel` with `Datagrams` reporting `Delivery::OverStream`. Datagram sends only enqueue; a full queue drops the oldest or the
+  newest (`DatagramDrop`), counted by `dropped()`; payloads are bounded by `max_datagram` (1200). Damage is counted (`Counters`) and a
+  reliable channel that misses a frame ends with `Failure::Protocol`. `MuxSettings` and `MuxBuilder` (settings `framing`, `channels`,
+  `max_message`, `pending`, `queued_bytes`, `send_limit`, `max_datagram`, `datagram_queue`, `datagram_pending`, `datagram_drop`).
+  `Mux::legacy`: the explicit wrapper that adds datagrams to a legacy-codec link by one tag byte, for an operator who controls both ends.
 - Feature `process`, module `process`: a child process with piped standard streams as a stream. `Launch` (program, arguments, working directory, environment), `Process::start` and `ProcessBuilder` (settings `stderr`, `stderr_tail`, `console`; the `launch` as the required input), `Process` as a `Split` whose interrupt ends the child's whole tree, `Control` (`try_wait`, `wait`, `kill`, `end`), `Exit`, `Diagnostics` (the newest bytes of standard error, counted), `Connector`. The tree ends together: a job object on Windows, a process group on Unix (and every descendant found through `/proc` on Linux). Standard error is drained on its own thread, bounded, and never merged into the protocol stream. Dependencies behind the feature: `rustix` on Unix, `win32job` on Windows.
 - `Channel`, `Datagrams` and `Delivery` (`Unreliable`, `OverStream`), with the methods and meaning
   they have in `coqui-web-channel` 0.0.0-alpha.0, and two provided methods on `Channel`:
