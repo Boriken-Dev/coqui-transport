@@ -22,6 +22,12 @@ const POLL: Duration = Duration::from_millis(250);
 /// What a queued frame counts beyond its bytes.
 const COST: usize = 64;
 
+/// What a held message or datagram of `length` bytes counts against a budget: its bytes and `COST`,
+/// so an empty one is not free.
+const fn cost(length: usize) -> usize {
+    length.saturating_add(COST)
+}
+
 /// The bytes a frame adds to its payload in this framing.
 pub(super) const fn overhead(framing: Framing) -> usize {
     match framing {
@@ -50,7 +56,7 @@ pub(super) struct Config {
 
 impl Config {
     /// The settings made ready; `max_message` is the setting already fitted to the carrier.
-    pub(super) fn new(settings: MuxSettings, max_message: usize) -> Self {
+    pub(super) fn new(settings: MuxSettings, max_message: usize, max_datagram: usize) -> Self {
         Self {
             framing: settings.framing,
             channels: match settings.framing {
@@ -65,7 +71,7 @@ impl Config {
             unopened_bytes: settings.unopened_bytes.min(settings.received_bytes / 4),
             max_damaged: settings.max_damaged.max(1),
             send_limit: settings.send_limit,
-            max_datagram: settings.max_datagram,
+            max_datagram,
             datagram_queue: settings.datagram_queue.max(1),
             datagram_pending: settings.datagram_pending.max(1),
             datagram_drop: settings.datagram_drop,
@@ -78,8 +84,10 @@ struct Slot {
     opened: bool,
     messages: VecDeque<Vec<u8>>,
     datagrams: VecDeque<Vec<u8>>,
-    /// Bytes of messages and datagrams held for `receive`.
-    held: usize,
+    /// What the messages held for `receive` count against the budgets.
+    held_messages: usize,
+    /// What the datagrams held for `receive` count against the budgets.
+    held_datagrams: usize,
     pending: usize,
     max_send: usize,
     max_receive: usize,
@@ -101,7 +109,8 @@ impl Slot {
             opened: false,
             messages: VecDeque::new(),
             datagrams: VecDeque::new(),
-            held: 0,
+            held_messages: 0,
+            held_datagrams: 0,
             pending: config.pending,
             max_send: config.max_message,
             max_receive: config.max_message,
@@ -130,11 +139,12 @@ struct State {
     /// Datagrams waiting for the writer: the channel and the payload.
     datagrams: VecDeque<(u16, Vec<u8>)>,
     queued: usize,
-    /// Bytes of messages held for `receive` across every channel.
+    /// What the messages held for `receive` by taken channels count, across every channel.
     received: usize,
-    /// Bytes of datagrams held for `receive` across every channel.
+    /// What the datagrams held for `receive` by taken channels count, across every channel.
     datagram_bytes: usize,
-    /// Of both, the bytes held for numbers nobody has taken.
+    /// What messages and datagrams held for numbers nobody has taken count, together; kept apart
+    /// from the budgets of the channels that were taken, so they can never starve those.
     unopened: usize,
     /// The writer's next pick is a datagram, so neither kind starves the other.
     datagram_turn: bool,
@@ -163,33 +173,57 @@ impl State {
             .or_insert_with(|| Slot::new(&config))
     }
 
-    /// Accounts for `bytes` now held for `number`.
-    fn hold(&mut self, number: u16, bytes: usize, datagram: bool) {
+    /// Accounts for what `number` now holds, `cost` of it.
+    fn hold(&mut self, number: u16, cost: usize, datagram: bool) {
         let slot = self.slot(number);
-        slot.held = slot.held.saturating_add(bytes);
-        let opened = slot.opened;
         if datagram {
-            self.datagram_bytes = self.datagram_bytes.saturating_add(bytes);
+            slot.held_datagrams = slot.held_datagrams.saturating_add(cost);
         } else {
-            self.received = self.received.saturating_add(bytes);
+            slot.held_messages = slot.held_messages.saturating_add(cost);
         }
+        let opened = slot.opened;
         if !opened {
-            self.unopened = self.unopened.saturating_add(bytes);
+            self.unopened = self.unopened.saturating_add(cost);
+        } else if datagram {
+            self.datagram_bytes = self.datagram_bytes.saturating_add(cost);
+        } else {
+            self.received = self.received.saturating_add(cost);
         }
     }
 
-    /// Accounts for `bytes` taken from what is held for `number`.
-    fn release(&mut self, number: u16, bytes: usize, datagram: bool) {
+    /// Accounts for `cost` taken from what `number` holds.
+    fn release(&mut self, number: u16, cost: usize, datagram: bool) {
         let slot = self.slot(number);
-        slot.held = slot.held.saturating_sub(bytes);
-        let opened = slot.opened;
         if datagram {
-            self.datagram_bytes = self.datagram_bytes.saturating_sub(bytes);
+            slot.held_datagrams = slot.held_datagrams.saturating_sub(cost);
         } else {
-            self.received = self.received.saturating_sub(bytes);
+            slot.held_messages = slot.held_messages.saturating_sub(cost);
         }
+        let opened = slot.opened;
         if !opened {
-            self.unopened = self.unopened.saturating_sub(bytes);
+            self.unopened = self.unopened.saturating_sub(cost);
+        } else if datagram {
+            self.datagram_bytes = self.datagram_bytes.saturating_sub(cost);
+        } else {
+            self.received = self.received.saturating_sub(cost);
+        }
+    }
+
+    /// Throws away what `number` holds unread and gives its share of the budgets back.
+    fn discard(&mut self, number: u16) {
+        let slot = self.slot(number);
+        let (messages, datagrams, opened) = (slot.held_messages, slot.held_datagrams, slot.opened);
+        slot.messages.clear();
+        slot.datagrams.clear();
+        slot.held_messages = 0;
+        slot.held_datagrams = 0;
+        if opened {
+            self.received = self.received.saturating_sub(messages);
+            self.datagram_bytes = self.datagram_bytes.saturating_sub(datagrams);
+        } else {
+            self.unopened = self
+                .unopened
+                .saturating_sub(messages.saturating_add(datagrams));
         }
     }
 
@@ -299,8 +333,12 @@ impl Engine {
             return Err(super::OpenError::InUse);
         }
         slot.opened = true;
-        let held = slot.held;
-        state.unopened = state.unopened.saturating_sub(held);
+        let (messages, datagrams) = (slot.held_messages, slot.held_datagrams);
+        state.unopened = state
+            .unopened
+            .saturating_sub(messages.saturating_add(datagrams));
+        state.received = state.received.saturating_add(messages);
+        state.datagram_bytes = state.datagram_bytes.saturating_add(datagrams);
         Ok(())
     }
 
@@ -548,13 +586,17 @@ impl Engine {
                 return;
             }
             if let Some(oldest) = slot.datagrams.pop_front() {
-                state.release(number, oldest.len(), true);
+                state.release(number, cost(oldest.len()), true);
             }
         }
         // Room in the datagram bytes held for every channel, and for the numbers nobody has taken.
+        let weight = cost(length);
         let over = |state: &State| {
-            state.datagram_bytes.saturating_add(length) > config.received_bytes
-                || (!opened && state.unopened.saturating_add(length) > config.unopened_bytes)
+            if opened {
+                state.datagram_bytes.saturating_add(weight) > config.received_bytes
+            } else {
+                state.unopened.saturating_add(weight) > config.unopened_bytes
+            }
         };
         if over(state) {
             if config.datagram_drop == DatagramDrop::Oldest {
@@ -564,7 +606,7 @@ impl Engine {
                         break;
                     };
                     slot.dropped += 1;
-                    state.release(number, oldest.len(), true);
+                    state.release(number, cost(oldest.len()), true);
                 }
             }
             if over(state) {
@@ -572,7 +614,7 @@ impl Engine {
                 return;
             }
         }
-        state.hold(number, length, true);
+        state.hold(number, weight, true);
         state.slot(number).datagrams.push_back(payload);
     }
 
@@ -609,15 +651,15 @@ impl Engine {
             };
         }
         slot.receive_sequence = slot.receive_sequence.wrapping_add(1);
-        let length = payload.len();
+        let weight = cost(payload.len());
         if !slot.opened {
-            if state.unopened.saturating_add(length) > config.unopened_bytes {
+            if state.unopened.saturating_add(weight) > config.unopened_bytes {
                 state.fail_slot(number, Failure::Protocol);
                 drop(state);
                 self.wake_all();
                 return Ok(());
             }
-            state.hold(number, length, false);
+            state.hold(number, weight, false);
             state.slot(number).messages.push_back(payload);
             drop(state);
             self.inbox.notify_all();
@@ -633,9 +675,9 @@ impl Engine {
             }
             let room = slot.messages.len() < slot.pending
                 && (state.received == 0
-                    || state.received.saturating_add(length) <= config.received_bytes);
+                    || state.received.saturating_add(weight) <= config.received_bytes);
             if room {
-                state.hold(number, length, false);
+                state.hold(number, weight, false);
                 state.slot(number).messages.push_back(payload);
                 drop(state);
                 self.inbox.notify_all();
@@ -781,7 +823,7 @@ impl Engine {
         loop {
             let slot = state.slot(number);
             if let Some(message) = slot.messages.pop_front() {
-                state.release(number, message.len(), false);
+                state.release(number, cost(message.len()), false);
                 drop(state);
                 self.space.notify_all();
                 return Ok(Some(message));
@@ -808,6 +850,8 @@ impl Engine {
         {
             let mut state = locked(&self.state);
             state.close_slot(number);
+            // What this channel still held unread is no one's now.
+            state.discard(number);
         }
         self.wake_all();
     }
@@ -891,7 +935,7 @@ impl Engine {
         loop {
             let slot = state.slot(number);
             if let Some(payload) = slot.datagrams.pop_front() {
-                state.release(number, payload.len(), true);
+                state.release(number, cost(payload.len()), true);
                 drop(state);
                 self.space.notify_all();
                 return Ok(Some(payload));
@@ -913,5 +957,20 @@ impl Engine {
 
     pub(super) fn dropped(&self, number: u16) -> u64 {
         locked(&self.state).slot(number).dropped
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Slot;
+
+    #[test]
+    fn a_slot_a_peer_can_make_this_side_keep_is_small() {
+        // The spec's bound on the memory of touched numbers rests on this.
+        assert!(
+            core::mem::size_of::<Slot>() <= 256,
+            "{}",
+            core::mem::size_of::<Slot>()
+        );
     }
 }

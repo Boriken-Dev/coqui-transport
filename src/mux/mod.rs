@@ -138,21 +138,25 @@ pub struct MuxSettings {
     /// Default [`Mux::DEFAULT_QUEUED_BYTES`].
     #[map(default = MuxSettings::new().queued_bytes)]
     pub queued_bytes: usize,
-    /// The most bytes of received messages held for `receive`, all channels together, and again the
-    /// most of received datagrams, so datagrams never keep a message out. When messages reach it the
+    /// The most that received messages held for `receive` by the channels that were taken may
+    /// count, all together, and again the most for received datagrams, so datagrams never keep a
+    /// message out. A held message or datagram counts its bytes and 64 more, so an empty one is not
+    /// free. A channel's closing, or its handle's drop, gives back what it held unread. When messages reach it the
     /// reader of the carrier waits until a channel is read (head-of-line blocking); a datagram that
     /// does not fit is dropped by `datagram_drop`. Default
     /// [`Mux::DEFAULT_RECEIVED_BYTES`].
     #[map(default = MuxSettings::new().received_bytes)]
     pub received_bytes: usize,
-    /// The most bytes held for channel numbers nobody has taken yet, all of them together; at most a
+    /// The most that messages and datagrams held for channel numbers nobody has taken yet may
+    /// count, all of them together and apart from `received_bytes`, counted as there; at most a
     /// quarter of `received_bytes`. A number that passes it fails (and reports the failure when it is
     /// taken) instead of making the reader wait. Take the numbers before a peer can send on them.
     /// Default [`Mux::DEFAULT_UNOPENED_BYTES`].
     #[map(default = MuxSettings::new().unopened_bytes)]
     pub unopened_bytes: usize,
-    /// How many frames in a row may fail their checksum before the multiplexer ends with
-    /// [`Failure::Protocol`]; one that fails before any frame has passed ends it at once. 0 is 1.
+    /// The multiplexer ends with [`Failure::Protocol`] at the `max_damaged`th frame in a row that
+    /// fails its checksum (the 8th by default); one that fails before any frame has passed ends it
+    /// at once. 0 is 1.
     /// Default [`Mux::DEFAULT_MAX_DAMAGED`].
     #[map(default = MuxSettings::new().max_damaged)]
     pub max_damaged: usize,
@@ -162,7 +166,9 @@ pub struct MuxSettings {
     #[map(default = MuxSettings::new().send_limit)]
     pub send_limit: Duration,
     /// The largest datagram payload sent, and the largest accepted: a longer one that arrives is
-    /// dropped and counted. Both ends should agree. Default [`Mux::DEFAULT_MAX_DATAGRAM`].
+    /// dropped and counted. Both ends should agree. Lowered, like `max_message`, to what the
+    /// carrier admits less the frame's overhead; a longer send is refused locally, whatever the
+    /// carrier. Default [`Mux::DEFAULT_MAX_DATAGRAM`].
     #[map(default = MuxSettings::new().max_datagram)]
     pub max_datagram: usize,
     /// How many datagrams wait to be written, all channels together. Default
@@ -373,21 +379,24 @@ impl Mux {
         let capabilities = carrier.capabilities();
         let reserved = overhead(settings.framing);
         let mut max_message = settings.max_message;
+        let mut max_datagram = settings.max_datagram;
         for bound in [capabilities.max_send, capabilities.max_receive]
             .into_iter()
             .flatten()
         {
-            if bound <= reserved {
+            // A bound of exactly the frame's overhead holds an empty message.
+            if bound < reserved {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "the carrier's message bound cannot hold a frame",
                 ));
             }
             max_message = max_message.min(bound - reserved);
+            max_datagram = max_datagram.min(bound - reserved);
         }
         let engine = Arc::new(Engine::new(
             Box::new(carrier),
-            Config::new(settings, max_message),
+            Config::new(settings, max_message, max_datagram),
         ));
         let writing = Arc::clone(&engine);
         let writer = std::thread::Builder::new()
