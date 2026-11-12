@@ -290,7 +290,7 @@ raise it above that. Each `MuxChannel` is a `Channel`: `send` queues (the queue 
   channel you open, or close it. The reader never waits for a number nobody has taken: those share `unopened_bytes` (at most a quarter of
   `received_bytes`) and a number past it fails, reporting `Failure::Protocol` when it is taken (it is not used up). Take the numbers at start.
   Every held item counts its bytes + 64. Memory a peer can make this side hold is `received_bytes` of messages (taken channels) + as much of
-  datagrams + `unopened_bytes` (kept apart, so it never starves a taken channel) + `queued_bytes` + the datagram queue + the carrier's own
+  datagrams + `unopened_bytes` (kept apart while untaken; taking a number moves what it held in, over the bound by at most `unopened_bytes`) + `queued_bytes` + the datagram queue + the carrier's own
   buffers + one slot (under 256 bytes) per touched number, at most `channels`. A channel's close or drop releases what it held unread. A lost close
   frame is noticed only when another frame shows the gap or the carrier ends.
 - **Datagrams** (`Delivery::OverStream`) never wait: `Datagrams::send` enqueues and returns; past `datagram_queue` the `datagram_drop` one goes

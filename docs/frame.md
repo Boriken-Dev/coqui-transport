@@ -126,7 +126,8 @@ full (counted by `Datagrams::dropped`). They are never reported as `Unreliable`.
   belonged to.
 * **Payload bound.** `max_datagram` (default 1200 bytes, which fits an IPv6 minimum-MTU packet, so
   code written against over-stream datagrams runs unchanged on native ones), lowered, like
-  `max_message`, to what the carrier admits less 12. A larger payload is `Failure::Protocol` on
+  `max_message`, to what the carrier admits less 12: the smaller of the carrier's send and receive
+  bounds, as for `max_message`. A larger payload is `Failure::Protocol` on
   send, refused locally and ending nothing; a larger one that arrives is dropped and counted.
 * **Turns.** The writer takes a message frame and a datagram frame in turn when both are waiting, so
   a stream of messages does not starve datagrams nor the reverse.
@@ -156,10 +157,13 @@ full (counted by `Datagrams::dropped`). They are never reported as `Unreliable`.
 Memory a peer can make this side hold is bounded by the settings. Every held message or datagram
 counts its bytes and 64 more, so an empty one is not free. Three budgets are kept apart:
 `received_bytes` for the messages of the channels that were taken, all together (a message that
-would pass it waits, so it is exceeded by nothing but one message alone in an empty queue); as much
+would pass it waits, so it is exceeded only by one message alone in an empty queue, and by what a
+number held when it was taken, see below); as much
 again for their datagrams (one that would pass it is dropped, so datagrams never keep a message
 out); and `unopened_bytes`, at most a quarter of `received_bytes`, for messages and datagrams of
-numbers nobody has taken, which therefore never take room from a channel that was. A channel's
+numbers nobody has taken, which therefore take no room from a channel that was while the number
+stays untaken. Taking a number moves what it held into the first two budgets without waiting for
+room, so they can be over by at most `unopened_bytes` until the channels are read. A channel's
 closing, or its handle's drop, gives back everything it held unread. To these add `queued_bytes` and
 `datagram_queue` datagrams to write, and what the carrier buffers itself: for a `StreamChannel`,
 `pending` messages read ahead of up to its `max_message` each, and its own `queued_bytes` to send.

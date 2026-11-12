@@ -19,11 +19,16 @@
 //! for a number nobody has taken: those hold a small budget between them
 //! ([`unopened_bytes`](MuxSettings::unopened_bytes)) and a number past it fails.
 //!
-//! **Memory.** What a peer can make this side hold is bounded by settings:
-//! [`received_bytes`](MuxSettings::received_bytes) of messages and as many of datagrams for every
-//! channel, at most a quarter of that more for the numbers nobody has taken, and
-//! [`queued_bytes`](MuxSettings::queued_bytes) and the datagram queue to send; plus what the
-//! carrier itself buffers, which a `StreamChannel` bounds by its own `pending` and `queued_bytes`.
+//! **Memory.** What a peer can make this side hold is bounded by settings. Every held message or
+//! datagram counts its bytes and 64 more, so an empty one is not free. Three budgets are kept apart:
+//! [`received_bytes`](MuxSettings::received_bytes) for the messages of the channels that were taken,
+//! the same again for their datagrams, and [`unopened_bytes`](MuxSettings::unopened_bytes), at most a
+//! quarter of `received_bytes`, for the numbers nobody has taken, which take no room from a taken
+//! channel while untaken; taking one moves what it held into the first two, over their bound by at
+//! most `unopened_bytes` until the channels are read. A channel's close or drop gives back what it
+//! held unread. Add [`queued_bytes`](MuxSettings::queued_bytes) and the datagram queue to send, one
+//! slot of under 256 bytes for each number a peer touches (at most `channels`), and what the carrier
+//! itself buffers, which a `StreamChannel` bounds by its own `pending` and `queued_bytes`.
 //!
 //! **Datagrams** never wait: [`Datagrams::send`] only enqueues, and when the queue is full drops the
 //! oldest or the newest (a setting), counted by [`Datagrams::dropped`]. They share the carrier with
