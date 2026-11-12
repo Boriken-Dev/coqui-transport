@@ -281,7 +281,7 @@ impl<T> MuxBuilder<T> { pub fn new() -> Self;  pub fn carrier(self, T) -> Self;
 
 `Mux::start` takes any `Channel` whose messages are frames, so the carrier's codec delimits them: `StreamChannel` with `LengthPrefix` on a
 byte stream, with `Cobs` on a serial line. `max_message` is lowered to what the carrier's reported bounds admit (less the frame's 12 bytes); a carrier whose
-bound cannot hold a frame is refused (`InvalidInput`); a carrier's bound is never raised, and a channel's `set_max_*` can lower its own, never
+bound cannot hold an empty frame is refused (`InvalidInput`); a carrier's bound is never raised, and a channel's `set_max_*` can lower its own, never
 raise it above that. Each `MuxChannel` is a `Channel`: `send` queues (the queue full is `Failure::NoProgress` with `is_closed()` false;
 `send_timeout` waits), `receive` returns that number's messages in order, then `Ok(None)` after the peer's close.
 
@@ -289,13 +289,15 @@ raise it above that. Each `MuxChannel` is a `Channel`: `send` queues (the queue 
   all channels reaching `received_bytes`, holds up the reader of the carrier, so every other channel waits until it is read: read every
   channel you open, or close it. The reader never waits for a number nobody has taken: those share `unopened_bytes` (at most a quarter of
   `received_bytes`) and a number past it fails, reporting `Failure::Protocol` when it is taken (it is not used up). Take the numbers at start.
-  Memory a peer can make this side hold is `received_bytes` of messages + as much of datagrams + that share + `queued_bytes` + the datagram queue + the
-  carrier's own buffers.
+  Every held item counts its bytes + 64. Memory a peer can make this side hold is `received_bytes` of messages (taken channels) + as much of
+  datagrams + `unopened_bytes` (kept apart, so it never starves a taken channel) + `queued_bytes` + the datagram queue + the carrier's own
+  buffers + one slot (under 256 bytes) per touched number, at most `channels`. A channel's close or drop releases what it held unread. A lost close
+  frame is noticed only when another frame shows the gap or the carrier ends.
 - **Datagrams** (`Delivery::OverStream`) never wait: `Datagrams::send` enqueues and returns; past `datagram_queue` the `datagram_drop` one goes
-  (counted per channel by `dropped()`, `Ok` either way); a payload over `max_datagram` is `Failure::Protocol`. Messages and datagrams are
+  (counted per channel by `dropped()`, `Ok` either way); a payload over `max_datagram` (lowered to what the carrier admits less 12) is `Failure::Protocol`, refused locally and ending nothing. Messages and datagrams are
   written in turn. Received datagrams past `datagram_pending` drop by the same rule.
 - **Damage.** A frame failing its checksum is dropped and counted (`Counters::corrupt`, also on `MuxChannel::counters`); one that fails before
-  any frame has passed, or `max_damaged` in a row, is a breach. The next message frame of that channel then skips a
+  any frame has passed, or the `max_damaged`th in a row, is a breach. The next message frame of that channel then skips a
   sequence number and the channel ends with `Failure::Protocol` (messages before the hole stay readable; the peer gets a close), the others go on.
   A lost datagram is counted by the gap in the datagram count (`lost_datagrams`). Frames for a channel after it ended are ignored, so an
   end stays an end.

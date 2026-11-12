@@ -58,7 +58,7 @@ measures loss (a datagram queued and dropped before it is written is never count
 3. The checksum does not match: the frame is **damaged**. It is dropped and counted
    (`Counters::corrupt`) and the carrier goes on, with two exceptions that are breaches: a damaged
    frame before any frame has passed its checksum (the peer is not speaking this frame), and
-   `max_damaged` damaged frames in a row (default 8; the link is not carrying the stream).
+   the `max_damaged`th damaged frame in a row (default 8; the link is not carrying the stream).
 4. Kind is not `0`, `1` or `2`, or a close has a payload: breach.
 5. Channel is not below the number of channels this side accepts: breach.
 
@@ -125,8 +125,9 @@ full (counted by `Datagrams::dropped`). They are never reported as `Unreliable`.
   Either way the call succeeds and the drop is counted against the channel the dropped datagram
   belonged to.
 * **Payload bound.** `max_datagram` (default 1200 bytes, which fits an IPv6 minimum-MTU packet, so
-  code written against over-stream datagrams runs unchanged on native ones). A larger payload is
-  `Failure::Protocol` on send; a larger one that arrives is dropped and counted.
+  code written against over-stream datagrams runs unchanged on native ones), lowered, like
+  `max_message`, to what the carrier admits less 12. A larger payload is `Failure::Protocol` on
+  send, refused locally and ending nothing; a larger one that arrives is dropped and counted.
 * **Turns.** The writer takes a message frame and a datagram frame in turn when both are waiting, so
   a stream of messages does not starve datagrams nor the reverse.
 * **Receiving.** Each channel holds `datagram_pending` datagrams; past that the same `datagram_drop`
@@ -145,22 +146,29 @@ full (counted by `Datagrams::dropped`). They are never reported as `Unreliable`.
 | `queued_bytes` | 16 MiB | queued messages awaiting the writer; each counts its frame and 64 |
 | `received_bytes` | 16 MiB | received messages held for `receive`, all channels together; and again for datagrams |
 | `unopened_bytes` | 64 KiB | held for numbers nobody has taken, all together; at most a quarter of `received_bytes` |
-| `max_damaged` | 8 | frames in a row with a bad checksum that end the multiplexer |
+| `max_damaged` | 8 | the Nth frame in a row with a bad checksum ends the multiplexer |
 | `send_limit` | 30 s | the carrier taking none of a frame ends the multiplexer with `NoProgress` |
 | `max_datagram` | 1200 | largest datagram payload |
 | `datagram_queue` | 64 | datagrams waiting to be written, all channels |
 | `datagram_pending` | 64 | datagrams a channel holds for `receive` |
 | `datagram_drop` | `oldest` | `oldest` or `newest` |
 
-Memory a peer can make this side hold is bounded by the settings, in bytes: `received_bytes` for
-messages of every channel together (a message that would pass it waits, so it is exceeded by
-nothing but one message alone in an empty queue) and, separately, as much for datagrams (one that
-would pass it is dropped, so datagrams never keep a message out), at most a quarter of that again
-for the numbers nobody has taken, `queued_bytes` and `datagram_queue` datagrams to write. Counts
-(`pending`, `datagram_pending`) bound each channel's queue within that. Added to this is what the
-carrier buffers itself: for a `StreamChannel`, `pending` messages read ahead of up to its
-`max_message` each, and its own `queued_bytes` to send; set those with the rest. Memory is not
-bounded by the number of channels beyond `channels` slots of a few hundred bytes each.
+Memory a peer can make this side hold is bounded by the settings. Every held message or datagram
+counts its bytes and 64 more, so an empty one is not free. Three budgets are kept apart:
+`received_bytes` for the messages of the channels that were taken, all together (a message that
+would pass it waits, so it is exceeded by nothing but one message alone in an empty queue); as much
+again for their datagrams (one that would pass it is dropped, so datagrams never keep a message
+out); and `unopened_bytes`, at most a quarter of `received_bytes`, for messages and datagrams of
+numbers nobody has taken, which therefore never take room from a channel that was. A channel's
+closing, or its handle's drop, gives back everything it held unread. To these add `queued_bytes` and
+`datagram_queue` datagrams to write, and what the carrier buffers itself: for a `StreamChannel`,
+`pending` messages read ahead of up to its `max_message` each, and its own `queued_bytes` to send.
+Counts (`pending`, `datagram_pending`) bound each channel's queue within that. A number a peer
+touches costs one slot, under 256 bytes (checked by a test) and a map entry, and there are at most
+`channels` of them: 16 numbers by default, about 20 MiB at the most of 65536.
+
+A close frame that is lost (damaged) is not noticed until another frame for that channel arrives
+and shows the gap, or the carrier ends: the channel waits for it meanwhile.
 
 ## Damage and serial
 
