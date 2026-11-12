@@ -64,9 +64,9 @@ fn received_bytes_also_bound_datagrams_which_never_hold_the_reader() {
     raw.send(&frame(Kind::Message, 0, 0, b"sync")).unwrap();
     assert_eq!(a0.receive(WAIT).unwrap().unwrap(), b"sync");
     let datagrams = a0.datagrams().unwrap();
-    // The oldest go first: the newest five are kept.
-    assert_eq!(datagrams.dropped(), 15);
-    for n in 15..20_u8 {
+    // Each counts its 1000 bytes and 64 more: four fit, and the oldest go first.
+    assert_eq!(datagrams.dropped(), 16);
+    for n in 16..20_u8 {
         assert_eq!(datagrams.receive(WAIT).unwrap().unwrap()[0], n);
     }
     assert_eq!(datagrams.receive(SHORT), Err(Failure::Timeout));
